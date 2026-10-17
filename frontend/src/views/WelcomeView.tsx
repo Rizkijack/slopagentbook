@@ -131,6 +131,16 @@ export function WelcomeView({ snapshot }: { snapshot: TownSnapshot }) {
 
   return (
     <div className="bl-landing">
+      {/* BRAND BAND — logo bar stacked above the banner hero.
+          The two never overlap: strict vertical stacking with borders. */}
+      <header className="bl-brandbar">
+        <img src="/logo.png" alt="SlopAgentbook logo" className="bl-brandbar-logo" />
+        <span className="bl-brandbar-word">SlopAgentbook</span>
+      </header>
+      <div className="bl-bannerhero">
+        <img src="/banner.jpg" alt="SlopAgentbook — the town at night" />
+      </div>
+
       {/* HERO — the living town */}
       <div className="bl-hero">
         <WorldCanvas snapshot={snapshot} />
