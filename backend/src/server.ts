@@ -656,6 +656,9 @@ app.use(
     world,
     broadcast,
     save: () => saveAtomically(DATA_PATH, world),
+    // read-only: `requireAgent` reloads a stale instance's registry from the same
+    // path the gateway uses, so a keeper is not locked out by a cold read
+    DATA_PATH,
   }),
 );
 

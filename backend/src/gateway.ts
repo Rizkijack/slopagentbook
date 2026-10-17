@@ -28,7 +28,7 @@ import { dayClock } from "./needs.js";
 import { LOCATION_BY_ID } from "./locations.js";
 import { claimQuest, claimQuestFor, updateQuestProgress } from "./quests.js";
 import { registerForContest, noteSpit, upcomingContest, withdrawFromContest } from "./tournament.js";
-import { saveAtomically, saveDebounced } from "./persist.js";
+import { saveAtomically, saveDebounced, refreshFromStore } from "./persist.js";
 import { planRemoval, applyRemoval } from "./pgstore.js";
 import { timingSafeEqualStrings } from "./adminKey.js";
 
@@ -233,18 +233,60 @@ export function createGatewayRouter(ctx: GatewayContext): express.Router {
     const header = req.headers.authorization ?? "";
     const bearer = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
     const token = bearer || (sessionCookieFrom(req) ?? "");
-    const record = token ? verifyToken(world, token) : null;
-    if (!record) {
-      res.status(401).json({ error: "unauthorized" });
+
+    const resolve = (): boolean => {
+      const record = token ? verifyToken(world, token) : null;
+      if (!record) return false;
+      const resident = world.herd.find((h) => h.id === record.residentId);
+      if (!resident) return false;
+      (req as AgentRequest).agent = { record, resident, token };
+      return true;
+    };
+    const unauthorized = (): void => {
+      if (res.headersSent) return;
+      try {
+        res.status(401).json({ error: "unauthorized" });
+      } catch {
+        // the caller is gone (aborted socket). Swallowed HERE rather than in the
+        // catch below, so a failed fallback send can never escape as an
+        // unhandled rejection.
+      }
+    };
+
+    if (resolve()) {
+      next();
       return;
     }
-    const resident = world.herd.find((h) => h.id === record.residentId);
-    if (!resident) {
-      res.status(401).json({ error: "unauthorized" });
+    if (!token) {
+      unauthorized();
       return;
     }
-    (req as AgentRequest).agent = { record, resident, token };
-    next();
+    // A miss here is not proof the token is bad. `pgSave` merges the row with
+    // the writer's copy, but only when something is WRITTEN, so a warm instance
+    // never picks up a registration another instance already persisted — it 401s
+    // a token that is valid in the store, which is exactly how the same token
+    // came back `OK -> 401 -> OK`. Merge once from the store and retry before
+    // refusing. An unknown or orphaned token still resolves to nothing after the
+    // merge, so it still 401s, body unchanged.
+    //
+    // One catch, not `.then(onOk, onRejected)`: a THROW inside the retry — e.g.
+    // `verifyToken` on a malformed `agents[]` row — would otherwise escape as an
+    // unhandled rejection, and on Node >=15 that kills the process (the same
+    // failure mode documented on saveChain in persist.ts).
+    void (async () => {
+      await refreshFromStore(DATA_PATH, world);
+      // last statement on purpose: anything appended after next() could throw
+      // once the response is written, and the catch would try to send a second
+      if (resolve()) next();
+      else unauthorized();
+    })().catch((e) => {
+      // Logged, never swallowed: a silent 401 here is indistinguishable from the
+      // stale-instance bug this change exists to fix, and would persist for the
+      // life of the instance. Only `e.message` — never the error object, which
+      // can carry a connection string, and never the token.
+      console.error("[gateway] agent auth retry failed", e instanceof Error ? e.message : "unknown");
+      unauthorized();
+    });
   }
 
   function agentOf(req: Request): AgentContext {
@@ -315,35 +357,109 @@ export function createGatewayRouter(ctx: GatewayContext): express.Router {
       return;
     }
     const { token } = parsed.data;
-    const record = verifyToken(world, token);
-    // An orphaned record (resident gone) is as unusable as a bad token, and both
-    // answer the same 400 so the endpoint cannot be used to probe which tokens
-    // once existed.
-    const resident = record ? world.herd.find((h) => h.id === record.residentId) : undefined;
-    if (!record || !resident) {
-      res.status(400).json({ error: "invalid agent token" });
+
+    const resolve = () => {
+      const record = verifyToken(world, token);
+      // An orphaned record (resident gone) is as unusable as a bad token, and both
+      // answer the same 400 so the endpoint cannot be used to probe which tokens
+      // once existed.
+      const resident = record ? world.herd.find((h) => h.id === record.residentId) : undefined;
+      return record && resident ? { record, resident } : null;
+    };
+    const invalid = (): void => {
+      if (res.headersSent) return;
+      try {
+        res.status(400).json({ error: "invalid agent token" });
+      } catch {
+        // aborted socket — swallowed here so a failed fallback cannot escape the
+        // catch below as an unhandled rejection
+      }
+    };
+    const login = (found: NonNullable<ReturnType<typeof resolve>>): void => {
+      // logging in is activity, exactly like POST /resume: an agent that just
+      // signed in must not be handed back to the sim before its first act.
+      touch(found.record);
+      saveDebounced(DATA_PATH, world);
+      res.setHeader("Set-Cookie", serializeSessionCookie(token, { secure: sessionCookieSecure() }));
+      res.json({ ok: true, resident: sessionResident(found.resident) });
+    };
+
+    const known = resolve();
+    if (known) {
+      login(known);
       return;
     }
-    // logging in is activity, exactly like POST /resume: an agent that just
-    // signed in must not be handed back to the sim before its first act.
-    touch(record);
-    saveDebounced(DATA_PATH, world);
-    res.setHeader("Set-Cookie", serializeSessionCookie(token, { secure: sessionCookieSecure() }));
-    res.json({ ok: true, resident: sessionResident(resident) });
+    // Same stale-instance miss requireAgentMw handles: the token may be perfectly
+    // valid in the store while this warm instance has never merged the row. One
+    // authoritative reload, then retry; an unknown or orphaned token still
+    // resolves to nothing and still gets the same 400. A reload that is refused
+    // or fails, and a `resolve()` that throws, both land on the same catch —
+    // express 4 cannot catch a rejected middleware promise, and on Node >=15 an
+    // unhandled one takes the whole town down.
+    void (async () => {
+      await refreshFromStore(DATA_PATH, world);
+      // last statement on purpose: nothing may follow login() here, or the catch
+      // would try to send a second response
+      const again = resolve();
+      if (again) login(again);
+      else invalid();
+    })().catch((e) => {
+      // Logged, never swallowed: message only, no error object and no token.
+      console.error("[gateway] session login retry failed", e instanceof Error ? e.message : "unknown");
+      invalid();
+    });
   });
 
   router.get("/api/agent/session", (req, res) => {
     const token = sessionCookieFrom(req);
-    const record = token ? verifyToken(world, token) : null;
-    const resident = record ? world.herd.find((h) => h.id === record.residentId) : undefined;
-    if (!record || !resident) {
-      // 200, never 401: the frontend polls this on every page load to decide
-      // whether to show the sign-in form, and a 401 would show up as a console
-      // error for every anonymous visitor. "Not signed in" is a normal answer.
-      res.json({ authenticated: false });
+    const resolve = () => {
+      const record = token ? verifyToken(world, token) : null;
+      const resident = record ? world.herd.find((h) => h.id === record.residentId) : undefined;
+      return record && resident ? resident : null;
+    };
+    const answer = (resident: Resident | null): void => {
+      if (res.headersSent) return;
+      try {
+        if (!resident) {
+          // 200, never 401: the frontend polls this on every page load to decide
+          // whether to show the sign-in form, and a 401 would show up as a console
+          // error for every anonymous visitor. "Not signed in" is a normal answer.
+          res.json({ authenticated: false });
+          return;
+        }
+        res.json({ authenticated: true, resident: sessionResident(resident) });
+      } catch {
+        // aborted socket — swallowed here so a failed fallback cannot escape the
+        // catch below as an unhandled rejection
+      }
+    };
+
+    const known = resolve();
+    if (known) {
+      answer(known);
       return;
     }
-    res.json({ authenticated: true, resident: sessionResident(resident) });
+    // No cookie at all is the ordinary anonymous case and must never reach the
+    // store — every visitor to the page polls this.
+    if (!token) {
+      answer(null);
+      return;
+    }
+    // Otherwise the same stale-instance miss as above: one authoritative reload,
+    // then retry, so a browser that just registered is not told it is signed out
+    // because it landed on an instance that has not merged its own join. A
+    // refused or failed reload, and a `resolve()` that throws, both land on the
+    // same catch and answer `authenticated: false` — never an unhandled rejection.
+    void (async () => {
+      await refreshFromStore(DATA_PATH, world);
+      // last statement on purpose: nothing may follow answer() here, or the catch
+      // would try to send a second response
+      answer(resolve());
+    })().catch((e) => {
+      // Logged, never swallowed: message only, no error object and no cookie.
+      console.error("[gateway] session lookup retry failed", e instanceof Error ? e.message : "unknown");
+      answer(null);
+    });
   });
 
   // Log out needs no auth (a stale cookie must be clearable) and always answers

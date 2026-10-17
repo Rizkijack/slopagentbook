@@ -12,6 +12,7 @@ import { BESTIARY, findMonster } from "./bestiary.js";
 import { ELDER, elderRoot, elderNode } from "./elder.js";
 import { updateQuestProgress } from "./quests.js";
 import { createRateLimiter, clientIp } from "./agents.js";
+import { refreshFromStore } from "./persist.js";
 
 // The BRAWL API rail, mounted after the gateway. Auth reuses the SAME token
 // mechanism as every other agent route (verifyToken + hashToken), so a BRAWL
@@ -26,6 +27,13 @@ export interface BrawlContext {
   world: TownSnapshot;
   broadcast: (msg: unknown) => void;
   save: () => Promise<void>;
+  /**
+   * Where the authoritative town row lives. Read-only here: `requireAgent` uses
+   * it to reload a stale instance's registry on a lookup miss, exactly as the
+   * gateway does. Mirrors `GatewayContext.DATA_PATH` rather than being a second
+   * way to name the store.
+   */
+  DATA_PATH: string;
 }
 
 function asyncH(fn: (req: Request, res: Response) => Promise<void>) {
@@ -50,7 +58,7 @@ function fail(res: Response, err: unknown): void {
 }
 
 export function createBrawlRouter(ctx: BrawlContext): express.Router {
-  const { world, broadcast, save } = ctx;
+  const { world, broadcast, save, DATA_PATH } = ctx;
   const router = express.Router();
   router.use(express.json({ limit: "64kb" }));
 
@@ -70,14 +78,66 @@ export function createBrawlRouter(ctx: BrawlContext): express.Router {
     const header = req.headers.authorization ?? "";
     const bearer = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
     const token = bearer || (sessionCookieFrom(req) ?? "");
-    const record = token ? verifyToken(world, token) : null;
-    if (!record || !world.herd.some((h) => h.id === record.residentId)) {
-      res.status(401).json({ error: "unauthorized" });
+
+    const resolve = (): { record: { residentId: string }; resident: { id: string; handle: string } } | null => {
+      const record = token ? verifyToken(world, token) : null;
+      if (!record) return null;
+      const resident = world.herd.find((h) => h.id === record.residentId);
+      return resident ? { record, resident } : null;
+    };
+    const unauthorized = (): void => {
+      if (res.headersSent) return;
+      try {
+        res.status(401).json({ error: "unauthorized" });
+      } catch {
+        // the keeper's socket is gone — swallowed HERE so a failed fallback send
+        // cannot escape the catch below as an unhandled rejection
+      }
+    };
+
+    const known = resolve();
+    if (known) {
+      (req as AgentReq).agent = known;
+      next();
       return;
     }
-    const resident = world.herd.find((h) => h.id === record.residentId)!;
-    (req as AgentReq).agent = { record, resident };
-    next();
+    if (!token) {
+      unauthorized();
+      return;
+    }
+    // A miss here is not proof the token is bad — the registry this instance is
+    // reading may simply predate a registration the store already holds, which
+    // would lock a keeper out of their own vault. One authoritative reload and a
+    // retry, exactly as the gateway middleware does.
+    //
+    // It cannot widen access: `refreshFromStore` unions the row with what this
+    // instance already had, so the only credentials that can newly resolve are
+    // ones the store records, and `mergeSnapshots` drops every tombstoned resident
+    // and agent on the way in — the same removals the write path applies. An
+    // unknown token, an orphaned record and a removed one all still 401.
+    //
+    // One catch covers a refused or failed reload AND a `resolve()` that throws:
+    // express 4 cannot catch a rejected middleware promise and Node >=15 turns an
+    // unhandled one into process death, which on this rail would be the worst
+    // possible failure.
+    void (async () => {
+      await refreshFromStore(DATA_PATH, world);
+      // last statement on purpose: nothing may follow next() here, or the catch
+      // would try to send a second response
+      const again = resolve();
+      if (!again) {
+        unauthorized();
+        return;
+      }
+      (req as AgentReq).agent = again;
+      next();
+    })().catch((e) => {
+      // Logged, never swallowed: on this rail a silent 401 would read as a
+      // keeper being denied, which is exactly the wrong diagnosis. Message only —
+      // never the error object, which can carry a connection string.
+      console.error("[brawl] auth retry failed", e instanceof Error ? e.message : "unknown");
+      unauthorized();
+    });
   }
 
   /**

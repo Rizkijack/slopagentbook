@@ -435,12 +435,23 @@ export function rollbackJoin(world: TownSnapshot, agentId: string, residentId: s
   }
 }
 
-/** Constant-time string compare on equal-length buffers (hashes are fixed length). */
+/**
+ * Constant-time string compare on equal-length buffers (hashes are fixed length).
+ *
+ * The `Buffer.from` calls are INSIDE the try: a registry row whose tokenHash is
+ * missing or not a string would otherwise throw out of here, and since the scan
+ * runs `hashEquals` against every row until one matches, that single bad row made
+ * the lookup throw for EVERY token on the instance. A read-side reload can pull
+ * such a row into a warm instance at any moment, so a malformed row has to
+ * degrade to "no match" (fail closed) rather than to an exception. The length
+ * pre-check and `timingSafeEqual` are unchanged: still constant-time on the
+ * comparison itself, and never fail open.
+ */
 function hashEquals(a: string, b: string): boolean {
-  const ba = Buffer.from(a, "utf8");
-  const bb = Buffer.from(b, "utf8");
-  if (ba.length !== bb.length) return false; // timingSafeEqual throws on length mismatch
   try {
+    const ba = Buffer.from(a, "utf8");
+    const bb = Buffer.from(b, "utf8");
+    if (ba.length !== bb.length) return false; // timingSafeEqual throws on length mismatch
     return timingSafeEqual(ba, bb);
   } catch {
     return false; // defensive: never fail open
