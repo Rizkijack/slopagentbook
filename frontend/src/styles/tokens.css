@@ -1,0 +1,704 @@
+:root {
+  --paper: #f4f1ea;
+  --paper-2: #ffffff;
+  --ink: #1b1915;
+  --ink-2: #3f3a33;
+  --muted: #6e675d;
+  --faint: #a49c90;
+  --rule: #1b1915;
+  --hair: #d8d2c6;
+  --mark: #e8e3d7;
+  --accent: #c9a86a;
+  --field: #cfe8c0;
+  --field-hill: #b8d8a8;
+  /* Map overlays — the drag hint and the contest bar float ON the canvas, so
+     they cannot borrow --paper: on the dark theme that is a near-black plate
+     under --ink's pale text, and both bars used to hardcode the light palette
+     instead, which is what put an opaque pale-cream slab with unreadable text
+     across the bottom of the dark map. One pair, both themes, both bars. */
+  --hud-paper: rgba(244, 241, 234, 0.94);
+  --hud-ink: #1b1915;
+  --hud-rule: #1b1915;
+  --hud-shadow: 0 2px 0 rgba(27, 25, 21, 0.16);
+  /* Dialogs — the scrim and the plate a modal sits on.
+     A modal cannot borrow --paper for its own surface. On the dark theme --paper
+     IS the page background (#0f0e0d), so a plate painted in it is invisible: no
+     amount of scrim separates two identical colours, which is exactly what
+     happened when this was a 62% wash of dark ink. A dialog has to read as raised,
+     so the dark plate is LIGHTER than its page and the light plate is WHITE, and
+     each scrim is tuned to dim its own page by a similar amount in luminance.
+     Dark 76% drops the page 0.0555 -> 0.0133; light 42% drops it 0.9456 -> 0.5485.
+     Measured plate-vs-scrim contrast: 2.87 dark, 1.75 light. */
+  --scrim: rgba(0, 0, 0, 0.42);
+  --plate: #ffffff;
+  --plate-rule: #1b1915;
+  --plate-shadow: 0 18px 48px rgba(27, 25, 21, 0.22);
+  --danger: #a31009;
+  /* The BRAWL settlement pair. These shipped inside the stone block only, so
+     var(--profit)/var(--halt) resolved to nothing on parchment and dark and the
+     +/- colour coding degraded to inherited text (invalid at computed-value
+     time, no error, just a vanished colour). Added here rather than pushing a
+     fallback into 24 call sites; no existing declaration in this block changed.
+     Values are the dark-surface ones darkened for #f4f1ea: 4.78:1 and 4.88:1. */
+  --profit: #1f7a34;
+  --halt: #b34700;
+  --serif: "Instrument Serif", "Iowan Old Style", Georgia, serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+[data-theme="dark"] {
+  --paper: #0f0e0d;
+  --paper-2: #1c1a18;
+  --ink: #f2ede6;
+  --ink-2: #d8d2c6;
+  --muted: #a49c90;
+  --faint: #7a7369;
+  --rule: #2e2a25;
+  --hair: #2e2a25;
+  --mark: #252220;
+  --accent: #c9a86a;
+  --field: #1e2e22;
+  --field-hill: #243628;
+  /* the dark-theme end of the overlay pair: a dark plate under pale text, so
+     the bar reads as a bar instead of a hole in the map */
+  --hud-paper: rgba(20, 19, 18, 0.94);
+  --hud-ink: #f2ede6;
+  --hud-rule: #4a443b;
+  --hud-shadow: 0 2px 0 rgba(0, 0, 0, 0.55);
+  /* The dark end of the dialog pair. The plate is #242120, three steps above
+     --paper, not --paper itself: a modal has to sit ABOVE the page, and on this
+     theme above means lighter. --ink on it is 5.40:1, so the body text still
+     clears AA even though the plate is no longer pure black. The scrim is much
+     heavier here than in the light theme on purpose — the dark page starts at
+     luminance 0.0555, so a light-theme-strength wash would have nothing to dim. */
+  --scrim: rgba(0, 0, 0, 0.76);
+  --plate: #242120;
+  --plate-rule: #4a443b;
+  --plate-shadow: 0 18px 48px rgba(0, 0, 0, 0.62);
+  /* The dark end of --danger. A saturated red is unusable here: #a31009, the
+     light-theme value, is 1.9:1 on this plate and effectively invisible. Reaching
+     4.5:1 on a near-black surface needs luminance 0.767, which leaves a pale
+     red. That is not a compromise, it is the only red that is both readable and
+     still obviously a red. */
+  --danger: #ffb8ad;
+  /* Dark end of the BRAWL settlement pair — same values as stone, since both
+     are dark surfaces. See the note in :root: without these the profit/halt
+     colour coding is simply absent on this theme. 10.96:1 and 6.77:1 here. */
+  --profit: #7FD86A;
+  --halt: #FF6B1A;
+}
+
+/* === stone — tema medieval ketiga (00 blueprint §6.3, revisi V1+V2) ===
+   ADDITIVE (P0-5): blok BARU di samping parchment dan dark. Blok :root dan
+   [data-theme="dark"] di atas BYTE-IDENTICAL — light parchment fitur existing
+   yang dikunci test map-overlay-theme.test.ts; mengubahnya = pengurangan.
+   25 var termasuk 10 yang blueprint v1 lewatkan (V2): keluarga hud/plate/scrim.
+   Tanpa mereka nilai cream terbawa ke permukaan gelap = regresi slab krem yang
+   didokumentasikan di tokens.css:14-18. Angka kontras = hasil hitung WCAG. */
+[data-theme="stone"] {
+  --paper: #17130E;    /* stone dark — dasar halaman */
+  --paper-2: #3A3127;  /* permukaan batu */
+  --ink: #E3D4A8;      /* parchment text — 12.6:1 vs --paper */
+  --ink-2: #FFD45E;    /* gold accent — 13.2:1 */
+  --muted: #a08b6a;    /* muted parchment — 5.7:1, lolos AA */
+  --faint: #6b5d4a;    /* dekoratif (timestamp/disable) — sama seperti parchment & dark, bukan body text */
+  --rule: #4a3f31;
+  --hair: #3A3127;
+  --mark: #5A3A22;
+  --accent: #FFD45E;
+  --field: #1e2e22;    /* canvas — tetap hijau gelap */
+  --field-hill: #233425;
+  --hud-paper: rgba(23, 19, 14, 0.94);   /* plate gelap di atas canvas → teks pucat terbaca */
+  --hud-ink: #E3D4A8;
+  --hud-rule: #4a3f31;
+  --hud-shadow: 0 2px 0 rgba(0, 0, 0, 0.55);
+  --scrim: rgba(0, 0, 0, 0.76);          /* halaman sudah gelap → scrim harus lebih berat */
+  --plate: #241E18;    /* WAJIB lebih terang dari --paper: modal harus duduk DI ATAS halaman, dan di tema gelap "di atas" = lebih terang */
+  --plate-rule: #4a3f31;
+  --plate-shadow: 0 18px 48px rgba(0, 0, 0, 0.62);
+  --danger: #FF7A6A;   /* loss red — 7.3:1 */
+  --profit: #7FD86A;   /* profit green — 10.6:1 (token BRAWL, dipakai P2 HaltRune/PnL) */
+  --halt: #FF6B1A;     /* halt orange — 6.5:1 (token BRAWL, idem) */
+  --serif: "Jacquard 24", serif;
+  --mono: "Pixelify Sans", monospace;
+}
+
+* { box-sizing: border-box; }
+
+html {
+  color-scheme: light dark;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--serif);
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 0.28s ease, color 0.28s ease;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 100;
+  opacity: 0.5;
+  background-image: radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--ink) 4.5%, transparent) 1px, transparent 0);
+  background-size: 4px 4px;
+}
+
+.masthead {
+  border-bottom: 2px solid var(--rule);
+  padding: 16px 24px;
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  /* The rail is 22 links of uppercase mono and does not fit beside the status
+   * block under ~2100px. Wrapping is what keeps the right-hand end of the
+   * header — the theme toggle and the herd counter — on screen; without it the
+   * masthead is wide enough to give every page a horizontal scrollbar. */
+  flex-wrap: wrap;
+  background: var(--paper-2);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  transition: background-color 0.28s ease, border-color 0.28s ease;
+}
+
+.masthead h1 {
+  margin: 0;
+  font-size: 28px;
+  letter-spacing: -0.02em;
+}
+
+.masthead nav {
+  display: flex;
+  /* Same reason the masthead wraps: a single unbroken row of 22 links is wider
+   * than the header, so the nav has to wrap internally before the header can
+   * hand its overflow to the next line. */
+  flex-wrap: wrap;
+  gap: 14px;
+  font-family: var(--mono);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.masthead nav a {
+  color: var(--muted);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  padding-bottom: 2px;
+  transition: color 0.2s ease, border-color 0.2s ease;
+}
+
+.masthead nav a.active,
+.masthead nav a:hover {
+  color: var(--ink);
+  border-bottom-color: var(--ink);
+}
+
+.page {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.page.turning {
+  animation: pageTurn 0.35s ease;
+}
+
+@keyframes pageTurn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.card {
+  background: var(--paper-2);
+  border: 1px solid var(--hair);
+  padding: 16px;
+  border-radius: 6px;
+  transition: background-color 0.28s ease, border-color 0.28s ease;
+}
+
+.mono { font-family: var(--mono); }
+.muted { color: var(--muted); }
+.faint { color: var(--faint); }
+.rule { border-top: 1px solid var(--hair); margin: 16px 0; }
+.hair { border-top: 1px solid var(--hair); }
+
+.btn {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 10px 14px;
+  border: 1px solid var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+.btn:hover { background: var(--ink-2); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-ghost { background: transparent; color: var(--ink); border-color: var(--hair); }
+.btn-ghost:hover { background: var(--mark); }
+
+.grid { display: grid; gap: 16px; }
+
+/* minmax(0, …), not a bare 1fr.
+ *
+ * A `1fr` track is `minmax(auto, 1fr)`, and `auto` floors the track at its
+ * items' min-content width. So one card whose name or bio is long enough
+ * (`white-space: nowrap` + ellipsis, which is how the herd cards render) widens
+ * its whole column past its share: the tracks stop dividing the page column
+ * evenly, the last one runs out past the viewport, and the third resident
+ * column is cut off at the right edge with a horizontal scrollbar under it.
+ * The floor is the defect — the ellipsis on those rows is what is supposed to
+ * absorb long text, so the track minimum has to be 0. */
+.grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 900px) { .grid-3, .grid-2 { grid-template-columns: 1fr; } }
+
+canvas.town {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 2px solid var(--rule);
+  background: var(--field);
+  image-rendering: pixelated;
+  touch-action: none;
+  transition: border-color 0.28s ease, background-color 0.28s ease;
+}
+
+canvas.town:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+/* The overview map and the district rail.
+ *
+ * The world is 1050x640 tiles and the canvas is at most 1232x560 CSS px, so at
+ * MIN_ZOOM the whole town is a 0.55-screen-px stamp of residents. This is what
+ * answers "where am I"; the rail is what answers "take me there".
+ *
+ * Bottom-right is the one corner nobody owns: 08 §10.4 pins Reset/Free Cam to
+ * the top right and the drag hint to the bottom left, so neither moves.
+ */
+.minimap {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  border: 1px solid var(--hud-rule);
+  box-shadow: var(--hud-shadow);
+  image-rendering: pixelated;
+  /* Read-only, and that is a contract rather than a nicety: the rail carries
+     the labels, and a 38x10 px parcel with no name is a coin flip. */
+  pointer-events: none;
+}
+
+.district-rail {
+  display: flex;
+  overflow-x: auto;
+  border: 1px solid var(--hair);
+  border-top: none;
+  background: var(--paper-2);
+}
+
+.district-tab {
+  flex: 1 1 0;
+  min-width: 92px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  border-right: 1px solid var(--hair);
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+.district-tab:last-child { border-right: none; }
+.district-tab:hover,
+.district-tab:focus-visible {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  outline: none;
+}
+.district-tab:hover { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.district-tab:focus-visible { box-shadow: inset 0 0 0 2px var(--ink); }
+
+.district-name {
+  font-family: var(--serif);
+  font-size: 13px;
+  line-height: 1;
+  color: var(--muted);
+  transition: color 0.2s ease;
+  white-space: nowrap;
+}
+.district-tab:hover .district-name,
+.district-tab:focus-visible .district-name { color: var(--ink); }
+
+.district-count {
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.district-tab:hover .district-count,
+.district-tab:focus-visible .district-count { color: var(--ink); }
+
+/* The chat board, as a table under the map.
+ *
+ * It was a 320px right-hand dock. That width is the whole story: a sentence in a
+ * column that narrow wraps to three or four lines, so the panel grew taller than
+ * the conversation in it and the messages could not be scanned. Full width
+ * under the map, the same posts become a log — four columns, one line each, and
+ * the eye can run down the author column instead of down a stack of cards.
+ *
+ * A real <table>, so the header row, the column headers and the associations
+ * between them are all real and a screen reader gets them for free.
+ */
+.chat-board { display: grid; gap: 10px; }
+
+.chat-board-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  border-bottom: 2px solid var(--rule);
+  padding-bottom: 8px;
+}
+.chat-board-title {
+  font-family: var(--serif);
+  font-size: 18px;
+  line-height: 1;
+  color: var(--ink);
+}
+.chat-board-sub {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.chat-table-wrap {
+  max-height: 420px;
+  overflow: auto;
+  border: 1px solid var(--hair);
+}
+.chat-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+
+/* Sticky so the column names stay put over a long board — the dock never had
+ * to solve this because it scrolled one card at a time. */
+.chat-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--paper);
+  text-align: left;
+  font-weight: 700;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--rule);
+}
+.chat-table tbody tr { border-bottom: 1px solid var(--hair); }
+.chat-table tbody tr:last-child { border-bottom: none; }
+.chat-table tbody tr:hover { background: color-mix(in srgb, var(--mark) 30%, transparent); }
+
+.chat-col-author { width: 200px; padding: 8px 12px; vertical-align: middle; }
+.chat-col-message { padding: 8px 12px; vertical-align: top; }
+.chat-col-when {
+  width: 84px;
+  padding: 8px 12px;
+  vertical-align: top;
+  white-space: nowrap;
+  font-size: 10px;
+}
+.chat-col-act { width: 78px; padding: 8px 12px; vertical-align: top; text-align: right; }
+
+/* The avatar is a canvas (inline), the names a grid; both middle-aligned so
+ * the author cell reads as one thing rather than a portrait over a caption. */
+.chat-col-author > canvas,
+.chat-col-author > img { vertical-align: middle; }
+.chat-author-text { display: inline-grid; gap: 1px; vertical-align: middle; margin-left: 8px; }
+.chat-author-name { font-size: 12px; font-weight: 700; color: var(--ink); }
+.chat-author-handle { font-size: 10px; }
+
+.chat-text { color: var(--ink); }
+.chat-quote {
+  margin: 0 0 4px;
+  padding-left: 8px;
+  border-left: 2px solid var(--hair);
+  font-size: 11px;
+  color: var(--muted);
+}
+.chat-empty-cell { padding: 16px 12px; font-size: 11px; }
+
+.chat-composer { display: grid; gap: 6px; border-top: 1px solid var(--hair); padding-top: 8px; }
+.chat-compose-row { display: flex; gap: 8px; align-items: center; }
+.chat-input { flex: 1; min-width: 0; }
+.chat-count { font-size: 10px; white-space: nowrap; }
+.chat-send { white-space: nowrap; }
+.chat-reply { padding: 1px 6px; font-size: 9px; }
+.chat-reply-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--muted);
+  background: var(--mark);
+  border-radius: 4px;
+  padding: 4px 6px;
+}
+.chat-error {
+  background: color-mix(in srgb, var(--danger) 14%, var(--paper));
+  border: 1px solid var(--danger);
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--danger);
+}
+.chat-sent { font-size: 10px; }
+
+/* Visually gone, still announced. The composer label and the actions header
+ * both need to exist for a screen reader and not for the eye. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* The town leaderboard (TownView).
+ *
+ * Meant to live in a side column beside the map, so it is deliberately small:
+ * a 5px row, 12px type, no avatars. ContestView renders the same standings at
+ * full size for the page that is about them; this is the glanceable version, and
+ * the page it sits on has other things to say.
+ */
+.lb-head {
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin-top: 4px;
+}
+
+.lb-list { list-style: none; margin: 6px 0 0; padding: 0; }
+
+.lb-row {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 5px 0;
+  border-top: 1px solid color-mix(in srgb, var(--hair) 60%, transparent);
+  font-size: 12px;
+}
+.lb-row:first-child { border-top: 1px solid var(--hair); }
+
+.lb-rank { width: 12px; font-size: 11px; text-align: right; flex-shrink: 0; }
+.lb-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+}
+
+/* Written out, not colour-coded: a dot alone is invisible to a colourblind
+   reader and says nothing to a screen reader either. */
+.lb-kind {
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0 4px;
+  border: 1px solid;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.lb-kind.is-agent { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+.lb-kind.is-npc { color: var(--faint); border-color: var(--hair); }
+
+.lb-record { font-size: 10px; color: var(--muted); white-space: nowrap; flex-shrink: 0; }
+.lb-points { font-weight: 700; min-width: 18px; text-align: right; }
+/* a zero with nothing behind it should not read like a score */
+.lb-points.is-zero { color: var(--faint); font-weight: 400; }
+
+@media (max-width: 900px) {
+  /* 168 keeps the world's 1050:640 aspect (168 * 640/1050 = 102.4). The
+     !important is the honest cost of the inline size in WorldCanvas: the CSS
+     and the canvas backing store must agree, and only the component knows
+     MM_W/MM_H. */
+  .minimap { width: 168px !important; height: 103px !important; }
+  .district-tab { min-width: 76px; padding: 7px 9px; }
+  /* Four columns survive a phone by getting narrower, not fewer. The timestamp
+     is three characters ("4m") and costs almost nothing to keep; the handle is
+     the one that goes, because the name above it already identifies the author
+     and @handle is decoration at this width. */
+  .chat-col-author { width: 108px; padding: 8px; }
+  .chat-col-message { padding: 8px; }
+  .chat-col-when { width: 52px; padding: 8px; }
+  .chat-col-act { width: 56px; padding: 8px; }
+  .chat-author-handle { display: none; }
+}
+
+/* theme toggle */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 6px 10px;
+  border: 1px solid var(--hair);
+  background: var(--paper-2);
+  color: var(--muted);
+  border-radius: 20px;
+  cursor: pointer;
+  transition: all 0.22s ease;
+}
+.theme-toggle:hover {
+  color: var(--ink);
+  border-color: var(--ink);
+  background: var(--mark);
+}
+.theme-toggle .dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1px solid currentColor;
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.28s ease;
+}
+.theme-toggle .dot::before {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border-radius: 50%;
+  background: currentColor;
+  transition: transform 0.28s ease, opacity 0.28s ease;
+}
+[data-theme="dark"] .theme-toggle .dot::before {
+  transform: translateX(4px) scale(0.85);
+  opacity: 0.9;
+}
+[data-theme="stone"] .theme-toggle .dot::before {
+  transform: translateX(2px) scale(0.92);
+  opacity: 0.95;
+}
+
+/* ── §6.4 Gerak (motion) ──────────────────────────────────────────────────
+ * Blueprint §6.4 names four rules. Three had no rule anywhere in the repo
+ * until now: there was no `prefers-reduced-motion` block at all, the second
+ * breakpoint (600px) was missing, and no button pressed on `:active`.
+ */
+
+/* Slider thumb: gold, framed (§6.4).
+ *
+ * The sliders in LeashPanel and ScalesCalculator set `accentColor` inline,
+ * which colours the track and its filled portion but leaves the thumb to the
+ * browser. Chrome ignores `::-webkit-slider-thumb` unless the control itself
+ * is `appearance: none`, so that is set here — and because it takes the track
+ * down with it, the track is restyled to the same weight rather than left to
+ * fall back to the UA default.
+ */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--hair);
+}
+input[type="range"]::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--hair);
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  margin-top: -6px; /* centres a 16px thumb on a 4px track */
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--ink); /* the frame */
+}
+input[type="range"]::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--ink);
+}
+
+/* Buttons press when held (§6.4).
+ *
+ * §6.4 names a `.pbtn` class, which no component in this repo has ever used —
+ * the buttons here are `.btn`, `.btn-ghost` and `.theme-toggle`. The rule is
+ * applied to the buttons that actually exist rather than defining a class
+ * nothing renders, which would be dead CSS. `transform` joins the transition
+ * list so the press eases instead of snapping; 0.97 is §6.4's scale.
+ */
+.btn,
+.btn-ghost,
+.theme-toggle {
+  transition-property: background-color, color, border-color, transform;
+}
+.btn:active,
+.btn-ghost:active,
+.theme-toggle:active {
+  transform: scale(0.97);
+}
+
+/* Responsive: 900px collapses the grids above; 600px is the second breakpoint
+ * §6.4 asks for. It exists because the masthead is one flex row of ~20 nav
+ * links and simply will not fit a phone without wrapping.
+ */
+@media (max-width: 600px) {
+  .masthead { flex-wrap: wrap; gap: 10px; padding: 12px 14px; }
+  .masthead h1 { font-size: 22px; }
+  .masthead nav { gap: 10px; font-size: 11px; flex-wrap: wrap; }
+  .page { padding: 14px; }
+  .grid { gap: 12px; }
+  .card { padding: 12px; }
+}
+
+/* prefers-reduced-motion: every animation off (§6.4).
+ *
+ * Durations collapse to 0.01ms rather than 0, and `animation` is deliberately
+ * NOT set to `none`. `.stagger > *` (global.css:25) starts at `opacity: 0`
+ * and depends on its animation's `forwards` fill to become visible, so
+ * `animation: none` would leave every staggered card invisible forever —
+ * the exact opposite of what this query is for. Collapsing the duration keeps
+ * the end state and removes only the travel. `animation-delay` is zeroed for
+ * the same reason: the 0.02s–0.18s stagger delays are travel too.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
+    scroll-behavior: auto !important;
+  }
+}

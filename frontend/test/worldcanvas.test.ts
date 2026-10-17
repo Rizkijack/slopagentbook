@@ -1,0 +1,649 @@
+import { describe, it, expect, beforeAll, beforeEach, afterEach } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { act } from "react-dom/test-utils";
+import { WorldCanvas } from "../src/canvas/WorldCanvas.js";
+import { LOCATIONS } from "../src/canvas/locationsData.js";
+import { MM_H, MM_W, fitParcelZoom, mmScale, parcelCentre } from "../src/canvas/minimap.js";
+import { V } from "../src/canvas/constants.js";
+import { DISTRICT_PARCELS } from "@slopagentbook/shared";
+
+// Regression cover for "the camera keeps snapping back to the middle".
+// These are the four causes, exercised through the real component:
+//   1. a snapshot push rebuilt the engine (and its camera)
+//   2. listener registration leaked on every rebuild (one wheel = N zooms)
+//   3. a pan gesture also emitted a click, which re-armed follow mode
+//   4. DPR transform was wiped each frame, so cursor maths drifted
+
+const VIEW_W = 1200;
+const VIEW_H = 560;
+const GENES = "2.1.0.3.1.42.55.62.1";
+
+type Snap = { herd: Array<{ id: string; name: string; handle: string; genes: string; mind: { doing: { place: string; act: string } }; born: number }> };
+
+function snap(ids: string[] = ["a1"]): Snap {
+  return { herd: ids.map((id) => ({ id, name: id, handle: id, genes: GENES, mind: { doing: { place: "square", act: "wander" } }, born: 0 })) };
+}
+
+const CTX_METHODS = [
+  "setTransform", "clearRect", "translate", "scale", "rotate", "fillRect", "strokeRect",
+  "beginPath", "closePath", "moveTo", "lineTo", "rect", "arc", "arcTo", "ellipse",
+  "quadraticCurveTo", "bezierCurveTo", "clip", "fill", "stroke", "setLineDash",
+  "fillText", "strokeText", "drawImage", "save", "restore", "putImageData", "getImageData",
+];
+
+/** Every setTransform the renderer asked for, so the DPR test can inspect them. */
+let transformCalls: number[][] = [];
+
+/**
+ * Every fillRect geometry the renderer asked for.
+ *
+ * Recorded so the minimap's district hover can be identified by the exact rect
+ * it draws: the main map fills in world px inside a camera transform, the
+ * minimap in minimap px, so a parcel's box on one cannot be mistaken for
+ * anything on the other. Counting calls would not do — the main map redraws
+ * every frame, so the count only ever goes up.
+ */
+let fillRects: number[][] = [];
+
+function installDomStubs() {
+  const ctx: Record<string, unknown> = {};
+  for (const m of CTX_METHODS) ctx[m] = () => ctx;
+  ctx.setTransform = (a: number, b: number, c: number, d: number, e: number, f: number) => {
+    transformCalls.push([a, b, c, d, e, f]);
+    return ctx;
+  };
+  ctx.fillRect = (x: number, y: number, w: number, h: number) => {
+    fillRects.push([x, y, w, h]);
+    return ctx;
+  };
+  ctx.measureText = (t: string) => ({ width: t.length * 6 });
+  ctx.createRadialGradient = () => ({ addColorStop: () => {} });
+  ctx.createLinearGradient = () => ({ addColorStop: () => {} });
+  ctx.createPattern = () => null;
+  ctx.getImageData = (x: number, y: number, w: number, h: number) => ({ data: new Uint8ClampedArray(w * h * 4), width: w, height: h });
+  ctx.createImageData = (w: number, h: number) => ({ data: new Uint8ClampedArray(w * h * 4), width: w, height: h });
+
+  const proto = HTMLCanvasElement.prototype as unknown as Record<string, unknown>;
+  proto.getContext = () => ctx;
+  proto.getBoundingClientRect = () => ({
+    x: 0, y: 0, left: 0, top: 0, right: VIEW_W, bottom: VIEW_H, width: VIEW_W, height: VIEW_H, toJSON: () => ({}),
+  });
+  proto.setPointerCapture = () => {};
+  proto.releasePointerCapture = () => {};
+  proto.hasPointerCapture = () => false;
+  (globalThis as unknown as Record<string, unknown>).ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+  (globalThis as unknown as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+  // jsdom reports 1, which would make a DPR bug invisible — force a real one
+  Object.defineProperty(window, "devicePixelRatio", { value: 1.5, configurable: true });
+}
+
+/** jsdom has no PointerEvent; MouseEvent + a pointerId reads the same to the handler. */
+function pe(type: string, clientX: number, clientY: number, pointerId = 1): MouseEvent {
+  const e = new MouseEvent(type, { bubbles: true, cancelable: true, clientX, clientY });
+  Object.defineProperty(e, "pointerId", { value: pointerId });
+  return e;
+}
+
+function xfOf(): any {
+  return (window as unknown as Record<string, any>).__hermes_xf;
+}
+
+let host: HTMLDivElement;
+let root: Root;
+
+function mount(snapshot: Snap, props: Partial<Parameters<typeof WorldCanvas>[0]> = {}) {
+  act(() => { root.render(createElement(WorldCanvas, { snapshot, ...props })); });
+}
+
+function canvasOf(): HTMLCanvasElement {
+  return host.querySelector("canvas.town") as HTMLCanvasElement;
+}
+
+/** Run the component's rAF loop long enough to paint at least one frame. */
+async function paintFrame() {
+  transformCalls = [];
+  fillRects = [];
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 60));
+  });
+}
+
+beforeAll(installDomStubs);
+
+beforeEach(() => {
+  host = document.createElement("div");
+  document.body.appendChild(host);
+  root = createRoot(host);
+});
+
+afterEach(() => {
+  act(() => { root.unmount(); });
+  host.remove();
+});
+
+describe("WorldCanvas camera", () => {
+  it("keeps the camera where the user put it when a snapshot arrives", () => {
+    mount(snap());
+
+    const xf = xfOf();
+    act(() => { xf.panBy(240, 120); });
+    const where = { x: xf.cam.tx, y: xf.cam.ty };
+
+    // the SSE store replaces the snapshot object a few times a second
+    for (let i = 0; i < 5; i++) mount(snap(["a1", `fork${i}`]));
+    act(() => { for (let i = 0; i < 30; i++) xf.tick(1 / 60); });
+
+    expect(xf).toBe(xfOf());          // same engine — not rebuilt
+    expect(xf.cam.tx).toBe(where.x);   // still exactly where it was left
+    expect(xf.cam.ty).toBe(where.y);
+    expect(xf.cam.x).toBeCloseTo(where.x, 4);
+    expect(xf.cam.y).toBeCloseTo(where.y, 4);
+    expect(xf.byId.has("a1")).toBe(true);
+    // each push swapped the herd, so only the latest forks survive
+    expect([...xf.byId.keys()].sort()).toEqual(["a1", "fork4"]);
+  });
+
+  it("applies one zoom step per wheel event, however many snapshots have arrived", () => {
+    mount(snap());
+    const xf = xfOf();
+    for (let i = 0; i < 6; i++) mount(snap(["a1", `fork${i}`]));
+
+    const canvas = canvasOf();
+    act(() => {
+      canvas.dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: -300 }));
+    });
+    // one step of exp(300 * 0.0015) — six leaked listeners would cap at 2.8
+    expect(xf.cam.zoom).toBeCloseTo(Math.exp(0.45), 6);
+
+    act(() => {
+      canvas.dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: 300 }));
+    });
+    expect(xf.cam.zoom).toBeCloseTo(1, 6);
+  });
+
+  it("pans 1:1 with the pointer", () => {
+    mount(snap());
+    const xf = xfOf();
+    const before = { x: xf.cam.tx, y: xf.cam.ty };
+    const canvas = canvasOf();
+
+    act(() => { canvas.dispatchEvent(pe("pointerdown", 600, 300)); });
+    act(() => { canvas.dispatchEvent(pe("pointermove", 700, 360)); });
+    act(() => { canvas.dispatchEvent(pe("pointerup", 700, 360)); });
+
+    expect(xf.cam.tx).toBeCloseTo(before.x - 100, 4);
+    expect(xf.cam.ty).toBeCloseTo(before.y - 60, 4);
+  });
+
+  it("does not re-arm follow when the gesture was a pan", () => {
+    mount(snap());
+    const xf = xfOf();
+    const canvas = canvasOf();
+    act(() => { xf.setFollow("a1"); });
+
+    act(() => { canvas.dispatchEvent(pe("pointerdown", 600, 300)); });
+    act(() => { canvas.dispatchEvent(pe("pointermove", 700, 360)); });
+    act(() => { canvas.dispatchEvent(pe("pointerup", 700, 360)); });
+
+    expect(xf.followId).toBeNull();
+  });
+
+  it("still follows a resident on a tap, and the camera tracks them", () => {
+    mount(snap());
+    const xf = xfOf();
+    const canvas = canvasOf();
+    const a = xf.byId.get("a1");
+    const onScreen = (worldX: number, worldY: number) => ({
+      x: (worldX - xf.cam.x) * xf.cam.zoom + VIEW_W / 2,
+      y: (worldY - xf.cam.y) * xf.cam.zoom + VIEW_H / 2,
+    });
+
+    const at = onScreen(a.x, a.y);
+    act(() => { canvas.dispatchEvent(pe("pointerdown", at.x, at.y)); });
+    act(() => { canvas.dispatchEvent(pe("pointerup", at.x, at.y)); });
+    expect(xf.followId).toBe("a1");
+
+    a.x = 1800;
+    // Hold the resident still. The camera eases at 0.08 per frame, so chasing a
+    // target that is itself walking keeps a steady-state lag of speed/(0.08*60)
+    // — about 6.2 px at a walk. Asserting tighter than that was testing the
+    // wander roll, not the follow, and it tipped over whenever the dice landed
+    // on a fast act. This test is about the camera, so pin the thing it follows.
+    a.path.length = 0;
+    a.wanderTimer = 999;
+    act(() => { for (let i = 0; i < 200; i++) xf.tick(1 / 60); });
+    // what the player sees is cam.x, and the resident holds still
+    expect(Math.abs(xf.cam.x - xf.byId.get("a1").x)).toBeLessThan(1);
+  });
+
+  it("pans with the keyboard and resets with 0", () => {
+    mount(snap());
+    const xf = xfOf();
+    const canvas = canvasOf();
+    const start = xf.cam.tx;
+
+    // panBy takes a drag delta, so an arrow key is the negated view direction:
+    // ArrowRight shows more of the east, i.e. the camera target moves east
+    act(() => { canvas.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true })); });
+    expect(xf.cam.tx).toBeCloseTo(start + 70, 4);
+    act(() => { canvas.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true, cancelable: true })); });
+    expect(xf.cam.tx).toBeCloseTo(start, 4);
+
+    act(() => { xf.zoomAt(0, 0, 1.5); });
+    act(() => { canvas.dispatchEvent(new KeyboardEvent("keydown", { key: "0", bubbles: true, cancelable: true })); });
+    expect(xf.cam.zoom).toBe(1);
+    // reset returns to the opening view, which is the town square — derived,
+    // so it does not become a stale literal when the map grows
+    expect(xf.cam.tx).toBe(start);
+  });
+
+  it("paints at the device pixel ratio instead of wiping the DPR transform", async () => {
+    mount(snap());
+    const xf = xfOf();
+    expect(xf.dpr).toBe(1.5);
+    const canvas = canvasOf();
+    expect(canvas.width).toBe(Math.round(VIEW_W * 1.5));
+    expect(canvas.height).toBe(Math.round(VIEW_H * 1.5));
+
+    await paintFrame();
+    expect(transformCalls.length).toBeGreaterThan(0);
+    // the old frame loop reset to identity every frame, which parked the whole
+    // town in the top-left corner on a retina screen
+    expect(transformCalls.some((c) => c[0] === 1 && c[3] === 1)).toBe(false);
+    for (const c of transformCalls) expect(c[0]).toBe(1.5);
+  });
+
+  it("gives the canvas keyboard and screen-reader affordances", () => {
+    mount(snap());
+    const canvas = canvasOf();
+    expect(canvas.classList.contains("town")).toBe(true);
+    expect(canvas.tabIndex).toBe(0);
+    expect(canvas.getAttribute("aria-label")).toBeTruthy();
+  });
+
+  it("keeps touch panning possible via the stylesheet rule", () => {
+    const css = readFileSync(resolve(import.meta.dirname, "../src/styles/tokens.css"), "utf8");
+    const rule = css.slice(css.indexOf("canvas.town"));
+    expect(rule.slice(0, rule.indexOf("}"))).toContain("touch-action: none");
+  });
+
+  it("keeps panning with one finger after a pinch, but never reads it as a tap", () => {
+    mount(snap());
+    const xf = xfOf();
+    const canvas = canvasOf();
+
+    // two fingers down, then one lifted: the survivor must inherit the pan
+    act(() => { canvas.dispatchEvent(pe("pointerdown", 500, 300, 1)); });
+    act(() => { canvas.dispatchEvent(pe("pointerdown", 700, 300, 2)); });
+    act(() => { canvas.dispatchEvent(pe("pointerup", 700, 300, 2)); });
+
+    const before = xf.cam.tx;
+    act(() => { canvas.dispatchEvent(pe("pointermove", 560, 300, 1)); });
+    expect(xf.cam.tx).toBeCloseTo(before - 60, 4);
+
+    // and lifting that last finger must not turn the pinch into a follow
+    act(() => { canvas.dispatchEvent(pe("pointerup", 560, 300, 1)); });
+    expect(xf.followId).toBeNull();
+  });
+
+  it("ignores a cancelled gesture instead of following whoever is under it", () => {
+    mount(snap());
+    const xf = xfOf();
+    const canvas = canvasOf();
+    const a = xf.byId.get("a1");
+    const at = {
+      x: (a.x - xf.cam.x) * xf.cam.zoom + VIEW_W / 2,
+      y: (a.y - xf.cam.y) * xf.cam.zoom + VIEW_H / 2,
+    };
+
+    // the browser takes the gesture away (palm rejection / OS gesture) right
+    // on top of a resident — that must not set follow
+    act(() => { canvas.dispatchEvent(pe("pointerdown", at.x, at.y)); });
+    act(() => { canvas.dispatchEvent(pe("pointercancel", at.x, at.y)); });
+    expect(xf.followId).toBeNull();
+  });
+
+  it("ignores a right-click", () => {
+    mount(snap());
+    const xf = xfOf();
+    const canvas = canvasOf();
+    const a = xf.byId.get("a1");
+    const at = {
+      x: (a.x - xf.cam.x) * xf.cam.zoom + VIEW_W / 2,
+      y: (a.y - xf.cam.y) * xf.cam.zoom + VIEW_H / 2,
+    };
+    const right = new MouseEvent("pointerdown", { bubbles: true, cancelable: true, clientX: at.x, clientY: at.y, button: 2 });
+    Object.defineProperty(right, "pointerId", { value: 1 });
+    Object.defineProperty(right, "pointerType", { value: "mouse" });
+
+    act(() => { canvas.dispatchEvent(right); });
+    act(() => { canvas.dispatchEvent(pe("pointerup", at.x, at.y)); });
+    expect(xf.followId).toBeNull();
+  });
+
+  it("leaves browser shortcuts alone", () => {
+    mount(snap());
+    const xf = xfOf();
+    const canvas = canvasOf();
+    const start = xf.cam.tx;
+    const ev = new KeyboardEvent("keydown", { key: "ArrowRight", ctrlKey: true, bubbles: true, cancelable: true });
+    act(() => { canvas.dispatchEvent(ev); });
+    expect(xf.cam.tx).toBe(start);
+    // Ctrl+S must still reach the browser
+    expect(ev.defaultPrevented).toBe(false);
+  });
+
+  it("drops residents the server no longer has, without resetting the ones it keeps", () => {
+    mount(snap(["a1", "a2", "a3"]));
+    const xf = xfOf();
+    const a1 = xf.byId.get("a1");
+    a1!.x = 1234;
+    expect(xf.byId.size).toBe(3);
+
+    // the engine is built once now, so a shrinking herd has to be applied
+    mount(snap(["a1", "fork0"]));
+    expect(xf.byId.size).toBe(2);
+    expect(xf.byId.has("a2")).toBe(false);
+    // and the survivor keeps its position — a delete-all-then-readd would blink
+    expect(xf.byId.get("a1")).toBe(a1);
+    expect(xf.byId.get("a1")!.x).toBe(1234);
+  });
+
+  it("detaches every listener on unmount", () => {
+    mount(snap());
+    const xf = xfOf();
+    const canvas = canvasOf();
+    const zoom = xf.cam.zoom;
+    const tx = xf.cam.tx;
+
+    act(() => { root.unmount(); });
+    expect(xfOf()).toBeUndefined();
+
+    // no listener may survive to touch a torn-down world
+    canvas.dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: -300 }));
+    canvas.dispatchEvent(pe("pointerdown", 100, 100));
+    canvas.dispatchEvent(pe("pointermove", 300, 300));
+    expect(xf.cam.zoom).toBe(zoom);
+    expect(xf.cam.tx).toBe(tx);
+
+    // the window resize listener must be gone too
+    const width = canvas.width;
+    window.dispatchEvent(new Event("resize"));
+    expect(canvas.width).toBe(width);
+
+    root = createRoot(host); // re-mount so afterEach can unmount cleanly
+  });
+});
+
+describe("follow agrees with the HUD", () => {
+  it("lets go when open ground is tapped, and says so", () => {
+    const seen: Array<string | null> = [];
+    mount(snap(), { onFollowChange: (id) => seen.push(id) });
+    const xf = xfOf();
+    const canvas = canvasOf();
+
+    act(() => { xf.setFollow("a1"); });
+    expect(seen).toEqual(["a1"]);
+
+    // the corner farthest from the only resident — outside the 44px pick radius
+    const a = xf.byId.get("a1");
+    const ax = (a.x - xf.cam.x) * xf.cam.zoom + VIEW_W / 2;
+    const ay = (a.y - xf.cam.y) * xf.cam.zoom + VIEW_H / 2;
+    const corners = [[10, 10], [VIEW_W - 10, 10], [10, VIEW_H - 10], [VIEW_W - 10, VIEW_H - 10]];
+    const [px, py] = corners.reduce((best, c) =>
+      Math.hypot(c[0] - ax, c[1] - ay) > Math.hypot(best[0] - ax, best[1] - ay) ? c : best);
+    expect(Math.hypot(px - ax, py - ay)).toBeGreaterThan(44);
+
+    act(() => { canvas.dispatchEvent(pe("pointerdown", px, py)); });
+    act(() => { canvas.dispatchEvent(pe("pointerup", px, py)); });
+
+    expect(xf.followId).toBeNull();
+    expect(seen[seen.length - 1]).toBeNull();
+  });
+
+  it("mirrors Free Cam to the HUD instead of leaving a stale \"Following\"", () => {
+    const seen: Array<string | null> = [];
+    mount(snap(), { onFollowChange: (id) => seen.push(id) });
+    const xf = xfOf();
+
+    act(() => { xf.setFollow("a1"); });
+    expect(seen).toEqual(["a1"]);
+
+    act(() => { xf.setFollow(null); }); // the Free Cam button
+    expect(seen).toEqual(["a1", null]);
+
+    // and the camera stops dead where the player can see it — no residual
+    // glide toward the resident that was just released
+    const frozen = xf.cam.tx;
+    act(() => { for (let i = 0; i < 120; i++) xf.tick(1 / 60); });
+    expect(xf.cam.tx).toBe(frozen);
+    expect(xf.cam.x).toBe(frozen);
+  });
+});
+
+// The world is 1050x640 tiles inside a 1232x560 canvas, so the overview and the
+// rail are what answer "where am I" and "take me there". These exercise them
+// through the real component, off the same window.__hermes_xf the camera tests
+// already use.
+
+describe("the overview map", () => {
+  it("draws alongside the map, hidden from assistive tech", () => {
+    mount(snap());
+    const both = host.querySelectorAll("canvas");
+    expect(both.length).toBe(2);
+    const mm = host.querySelector("canvas.minimap") as HTMLCanvasElement;
+    expect(mm).toBeTruthy();
+    // the rail is the accessible copy of everything the minimap shows; two
+    // representations of one fact is a screen reader's problem, not a feature
+    expect(mm.getAttribute("aria-hidden")).toBe("true");
+    expect(mm.hasAttribute("tabindex")).toBe(false);
+  });
+
+  it("keeps its backing store at device pixel ratio, like the map", () => {
+    mount(snap());
+    const mm = host.querySelector("canvas.minimap") as HTMLCanvasElement;
+    expect(mm.width).toBe(Math.round(MM_W * 1.5));
+    expect(mm.height).toBe(Math.round(MM_H * 1.5));
+  });
+
+  it("paints from the map's own frame loop, so the box cannot lag a pan", () => {
+    mount(snap());
+    return paintFrame().then(() => {
+      // one plate fill per frame at the minimap's exact size
+      const plate = fillRects.filter((r) => r[0] === 0 && r[1] === 0 && r[2] === MM_W && r[3] === MM_H);
+      expect(plate.length).toBeGreaterThan(0);
+    });
+  });
+
+  it("lights up the district the rail is pointing at", async () => {
+    mount(snap());
+    const tabs = host.querySelectorAll<HTMLButtonElement>(".district-tab");
+    const target = DISTRICT_PARCELS[4]!;
+    const tab = [...tabs].find((b) => b.querySelector(".district-name")?.textContent === target.name)!;
+    expect(tab).toBeTruthy();
+
+    const s = mmScale();
+    const want = [target.x * s, target.y * s, target.w * s, target.h * s];
+    const drawn = () => fillRects.some((r) => r.every((v, i) => Math.abs(v - want[i]!) < 0.001));
+
+    // fillRects accumulates across the whole file, so each phase starts from a
+    // clean slate — otherwise the rect drawn while hovering is still in the
+    // list when the leave is checked, and the leave looks like a no-op.
+    fillRects = [];
+    expect(drawn()).toBe(false);
+    // mouseover/mouseout, not mouseenter/mouseleave: React synthesises the
+    // enter/leave pair from over/out plus relatedTarget (EnterLeaveEventPlugin),
+    // so a dispatched `mouseenter` never reaches the handler at all.
+    await act(async () => {
+      tab.dispatchEvent(new MouseEvent("mouseover", { bubbles: true, relatedTarget: null }));
+      await new Promise((r) => setTimeout(r, 60));
+    });
+    expect(drawn()).toBe(true);
+
+    fillRects = [];
+    await act(async () => {
+      tab.dispatchEvent(new MouseEvent("mouseout", { bubbles: true, relatedTarget: null }));
+      await new Promise((r) => setTimeout(r, 60));
+    });
+    expect(drawn()).toBe(false);
+  });
+});
+
+// A resident who is already in the town when the canvas mounts is placed by the
+// engine constructor, which reads LOCATIONS. One who arrives later is placed by
+// the React effect, and that second path is the one that rotted: it kept its own
+// hardcoded `{ square: [104,62], barn: [44,44], pens: [84,90] }`, which are the
+// coordinates the square had when the map was 210x128. Every join over SSE landed
+// at tile (104,62) — the far north-west — whatever the server said they were
+// doing, and only drifted to the right place when their next order arrived.
+
+describe("a resident who arrives after mount", () => {
+  const at = (id: string, place: string) => ({
+    id, name: id, handle: id, genes: GENES,
+    mind: { doing: { place, act: "wander" } }, born: 0,
+  });
+  const herdOf = (...rows: Array<{ id: string; place: string }>) => ({ herd: rows.map((r) => at(r.id, r.place)) });
+
+  /** Within the jitter the spawn applies (Math.random() * 24 - 12). */
+  const atSpot = (x: number, y: number, placeId: string) => {
+    const spot = LOCATIONS.find((l) => l.id === placeId)!.spot;
+    expect(Math.abs(x - spot[0] * V)).toBeLessThanOrEqual(12);
+    expect(Math.abs(y - spot[1] * V)).toBeLessThanOrEqual(12);
+  };
+
+  it("appears where the server says, for any location", () => {
+    mount(herdOf({ id: "a1", place: "square" }) as unknown as Snap);
+    const xf = xfOf();
+
+    // one that had no entry in the old table at all
+    act(() => { mount(herdOf({ id: "a1", place: "square" }, { id: "b2", place: "tavern" }) as unknown as Snap); });
+    atSpot(xf.byId.get("b2")!.x, xf.byId.get("b2")!.y, "tavern");
+
+    // and one that did have one — the old table mapped square to [104,62], which
+    // is nowhere near the square's real tile of [523,315]
+    act(() => { mount(herdOf({ id: "a1", place: "square" }, { id: "b2", place: "tavern" }, { id: "c3", place: "barn" }) as unknown as Snap); });
+    atSpot(xf.byId.get("c3")!.x, xf.byId.get("c3")!.y, "barn");
+  });
+
+  it("does not fall back to the stale north-west tile", () => {
+    mount(herdOf({ id: "a1", place: "square" }) as unknown as Snap);
+    const xf = xfOf();
+    act(() => { mount(herdOf({ id: "a1", place: "square" }, { id: "d4", place: "mill" }) as unknown as Snap); });
+
+    const a = xf.byId.get("d4")!;
+    // the bug's coordinate, in world px
+    expect(Math.hypot(a.x - 104 * V, a.y - 62 * V)).toBeGreaterThan(1000);
+  });
+
+  it("keeps two residents at their own places instead of collapsing them together", () => {
+    mount(herdOf({ id: "a1", place: "square" }) as unknown as Snap);
+    const xf = xfOf();
+    // the far end of town — 97 of the 100 locations shared the old fallback, so
+    // the signature of the bug was everyone arriving on top of each other
+    act(() => { mount(herdOf({ id: "a1", place: "square" }, { id: "e5", place: "peatWorks" }) as unknown as Snap); });
+
+    const a = LOCATIONS.find((l) => l.id === "square")!.spot;
+    const b = LOCATIONS.find((l) => l.id === "peatWorks")!.spot;
+    const expected = Math.hypot((a[0] - b[0]) * V, (a[1] - b[1]) * V);
+    const actual = Math.hypot(
+      xf.byId.get("a1")!.x - xf.byId.get("e5")!.x,
+      xf.byId.get("a1")!.y - xf.byId.get("e5")!.y,
+    );
+    // threshold derived from the map, not picked: the only thing allowed to
+    // differ is the ±12px jitter on each end
+    expect(Math.abs(actual - expected)).toBeLessThanOrEqual(30);
+    expect(expected).toBeGreaterThan(V * 100);
+  });
+
+  it("falls back to the first location when the place is unknown, never to a literal", () => {
+    mount(herdOf({ id: "a1", place: "square" }) as unknown as Snap);
+    const xf = xfOf();
+    act(() => { mount(herdOf({ id: "a1", place: "square" }, { id: "f6", place: "atlantis" }) as unknown as Snap); });
+
+    atSpot(xf.byId.get("f6")!.x, xf.byId.get("f6")!.y, LOCATIONS[0]!.id);
+  });
+});
+
+describe("the district rail", () => {
+  it("lists every parcel with its resident count", () => {
+    mount(snap(["a1", "a2"]));
+    const tabs = host.querySelectorAll<HTMLButtonElement>(".district-tab");
+    expect(tabs.length).toBe(DISTRICT_PARCELS.length);
+    const names = [...tabs].map((b) => b.querySelector(".district-name")?.textContent);
+    expect(names).toEqual(DISTRICT_PARCELS.map((d) => d.name));
+
+    // both residents are at the square, which is in the town parcel
+    const town = tabs[0]!;
+    expect(town.querySelector(".district-count")?.textContent).toBe("2");
+  });
+
+  it("is a labelled landmark, not a bare row of buttons", () => {
+    mount(snap());
+    const nav = host.querySelector("nav.district-rail");
+    expect(nav).toBeTruthy();
+    expect(nav!.getAttribute("aria-label")).toBe("Districts");
+  });
+
+  it("flies to a district, and eases there rather than snapping", async () => {
+    mount(snap());
+    const xf = xfOf();
+    const start = { x: xf.cam.tx, y: xf.cam.ty };
+    const target = DISTRICT_PARCELS[6]!; // Farm Belt — far enough to travel
+    const tab = host.querySelectorAll<HTMLButtonElement>(".district-tab")[6]!;
+
+    await act(async () => { tab.click(); });
+
+    const [cx, cy] = parcelCentre(target);
+    expect(xf.cam.tx).toBeCloseTo(cx * V, 6);
+    expect(xf.cam.ty).toBeCloseTo(cy * V, 6);
+    expect(xf.cam.tx).not.toBeCloseTo(start.x, 3);
+    // only the *target* moved: the camera is still exactly where it was and
+    // will ease across. This is the whole difference from panBy and resetCam,
+    // which assign cam.x directly so the view never glides after the pointer.
+    expect(xf.cam.x).toBe(start.x);
+    expect(xf.cam.y).toBe(start.y);
+
+    act(() => { for (let i = 0; i < 400; i++) xf.tick(1 / 60); });
+    // Exponential easing approaches the target and never quite reaches it, so
+    // this asks "arrived", not "arrived to the last decimal": a tick count is a
+    // poor proxy for time, and rAF frames land during the click's act() on top
+    // of these. Well under one tile is the honest bar.
+    expect(Math.abs(xf.cam.x - xf.cam.tx)).toBeLessThan(V);
+    expect(Math.abs(xf.cam.y - xf.cam.ty)).toBeLessThan(V);
+    // and it travelled, rather than sitting on the target the whole time
+    expect(Math.abs(xf.cam.x - start.x)).toBeGreaterThan(Math.abs(xf.cam.tx - start.x) * 0.9);
+    // and it framed the parcel rather than dropping straight into it. The fit
+    // zoom is below 1 for a district wider than the viewport — Farm Belt is
+    // 2,688 world px across an 1,200 px view, so "framed" means pulling back,
+    // not pushing in. Asserting the exact target is the real claim.
+    expect(xf.cam.tz).toBeCloseTo(fitParcelZoom(target, xf.viewW, xf.viewH), 10);
+    expect(xf.cam.tz).not.toBe(1);
+    expect(xf.cam.zoom).toBeCloseTo(xf.cam.tz, 3);
+  });
+
+  it("lets go of a followed resident, or the fly would fight the follow", async () => {
+    mount(snap(["a1", "a2"]));
+    const xf = xfOf();
+    act(() => { xf.setFollow("a1"); });
+    expect(xf.followId).toBe("a1");
+
+    const tab = host.querySelectorAll<HTMLButtonElement>(".district-tab")[3]!;
+    await act(async () => { tab.click(); });
+    expect(xf.followId).toBeNull();
+  });
+
+  it("releases the resident too, so a jump cannot chase someone off the map", async () => {
+    mount(snap(["a1"]));
+    const xf = xfOf();
+    act(() => { xf.setFollow("a1"); });
+    act(() => { xf.gotoTo(4000, 4000, 1); });
+    expect(xf.followId).toBeNull();
+  });
+});

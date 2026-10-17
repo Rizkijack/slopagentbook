@@ -1,0 +1,628 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Xf, RANK_COLORS, ENTRANT_COLOR, NPC_H, hashId, type ContestMark } from "./engine.js";
+import { LOCATIONS, PLACE_PARCEL } from "./locationsData.js";
+import { parseHash } from "../router/hash.js";
+import { CONTEST, DISTRICT_PARCELS, type Contest, type ContestState } from "@slopagentbook/shared";
+import { drawMinimap, fitParcelZoom, MM_H, MM_W, parcelCentre } from "./minimap.js";
+import { V } from "./constants.js";
+
+const DRAG_CLICK_SLOP = 5; // px of pointer travel still counted as a click
+
+export type ContestPhase = "idle" | "announced" | "live" | "resolved";
+
+/**
+ * 08 §10.1 — the HUD state machine. `idle` renders nothing at all: the town is
+ * allowed to be quiet, and the result card is the only phase with a clock
+ * attached to it (CONTEST.resultCardMs, ~45s, then the Daily Spit cites it).
+ */
+export function contestPhase(contest: Contest | undefined, now: number): ContestPhase {
+  if (!contest) return "idle";
+  if (contest.state !== "resolved") return contest.state;
+  return now < (contest.result?.resolvedAt ?? 0) + CONTEST.resultCardMs ? "resolved" : "idle";
+}
+
+/**
+ * Which contest this canvas is about. The route wins (`#/contest/:id`, 08 §10.3
+ * — the permalink forces its own overlay), otherwise the most urgent window:
+ * live beats announced, and only a result card that is still within its 45s
+ * window beats silence. Days with no contest simply return undefined.
+ */
+export function pickContest(contests: Contest[] | undefined, forcedId: string | null, now: number): Contest | undefined {
+  if (!contests || contests.length === 0) return undefined;
+  if (forcedId) return contests.find((c) => c.id === forcedId);
+  const inState = (s: ContestState) => contests.find((c) => c.state === s);
+  return inState("live")
+    ?? inState("announced")
+    ?? [...contests].reverse().find((c) => contestPhase(c, now) === "resolved");
+}
+
+export interface StandingRow {
+  agentId: string;
+  name: string;
+  metric: number;
+}
+
+/**
+ * Provisional standings while the contest runs: how many ticks each entrant
+ * spent at the venue, straight off the evidence trail. The resolver's numbers
+ * replace this the moment there is a result — this is a scoreboard, not a
+ * verdict (08 §4.1).
+ */
+export function liveStandings(contest: Contest, herd: Array<{ id: string; name: string }>): StandingRow[] {
+  const nameOf = (id: string) => herd.find((h) => h.id === id)?.name ?? id.slice(0, 8);
+  return contest.entrants
+    .map((agentId) => ({
+      agentId,
+      name: nameOf(agentId),
+      metric: contest.samples.reduce((n, s) => n + (s.agentId === agentId && s.place === contest.place ? 1 : 0), 0),
+    }))
+    .sort((a, b) => b.metric - a.metric || a.name.localeCompare(b.name));
+}
+
+/** 08 §10.3 — `#/contest/:id` selects the contest this canvas forces on. */
+function routeContestId(): string | null {
+  if (typeof location === "undefined") return null;
+  const route = parseHash(location.hash);
+  return route.page === "contest" ? (route.arg ?? null) : null;
+}
+
+function mmss(ms: number): string {
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+/**
+ * The thin bar (08 §10.1). It sits 48px below the top edge so the canvas keeps
+ * its `Reset` / `Free Cam` buttons (top-right) and its drag hint (bottom-left)
+ * exactly where they were — see 08 §10.4; the buttons are never moved.
+ *
+ * Every colour comes from the --hud-* tokens, so the bar follows the theme
+ * instead of carrying a copy of the light one: it used to hardcode
+ * rgba(244,241,234,0.94) over #1b1915 text, and on the dark theme that is a
+ * cream slab across the map.
+ */
+function ContestHud({ contest, phase, herd, now }: {
+  contest: Contest;
+  phase: ContestPhase;
+  herd: Array<{ id: string; name: string }>;
+  now: number;
+}) {
+  const nameOf = (id: string) => herd.find((h) => h.id === id)?.name ?? id.slice(0, 8);
+  const venue = LOCATIONS.find((l) => l.id === contest.place)?.name.replace("The ", "") ?? contest.place;
+  const standings = liveStandings(contest, herd);
+  const label = phase === "announced" ? "STARTING" : phase === "live" ? "● LIVE" : "RESULT";
+
+  return (
+    <div
+      data-testid="contest-hud"
+      data-phase={phase}
+      data-contest-id={contest.id}
+      style={{
+        position: "absolute", top: 48, left: 8, right: 8,
+        display: "flex", alignItems: "center", gap: 12, padding: "6px 10px",
+        overflow: "hidden", whiteSpace: "nowrap",
+        background: "var(--hud-paper)", border: "1px solid var(--hud-rule)",
+        fontFamily: "JetBrains Mono", fontSize: 11, color: "var(--hud-ink)",
+        boxShadow: "var(--hud-shadow)",
+      }}
+    >
+      <span style={{ fontSize: 9, letterSpacing: "0.16em", color: phase === "live" ? ENTRANT_COLOR : "var(--muted)" }}>{label}</span>
+      <strong data-testid="contest-title" style={{ fontFamily: "Instrument Serif", fontSize: 16, fontWeight: 400 }}>{contest.title}</strong>
+      <span style={{ fontSize: 10, color: "var(--muted)" }}>@ {venue}</span>
+
+      {phase === "announced" && (
+        <>
+          <span data-testid="contest-countdown">starts in {Math.max(0, Math.ceil((contest.startsAt - now) / 1000))}s</span>
+          <span data-testid="contest-entrants" style={{ display: "inline-flex", gap: 8 }}>
+            {contest.entrants.map((id) => (
+              <span key={id} data-testid="hud-entrant" style={{ color: ENTRANT_COLOR }}>◆ {nameOf(id)}</span>
+            ))}
+          </span>
+        </>
+      )}
+
+      {phase === "live" && (
+        <>
+          <span data-testid="contest-timer" style={{ fontWeight: 700 }}>{mmss(contest.endsAt - now)} left</span>
+          <span data-testid="contest-standings" style={{ display: "inline-flex", gap: 10 }}>
+            {standings.slice(0, 3).map((row, i) => (
+              <span key={row.agentId} data-testid="hud-standing-row">
+                <span style={{ color: RANK_COLORS[i] ?? ENTRANT_COLOR }}>{i + 1}.</span> {row.name} <b>{row.metric}</b>
+              </span>
+            ))}
+          </span>
+        </>
+      )}
+
+      {phase === "resolved" && (
+        <span data-testid="contest-result">
+          {contest.result
+            ? contest.result.voidResult
+              ? "no points — one contestant standing"
+              : `${nameOf(contest.result.standings.find((s) => s.rank === 1)?.agentId ?? "")} wins`
+            : "awaiting the result"}
+          {contest.result && (
+            <span style={{ color: "var(--muted)", marginLeft: 8 }}>
+              {contest.result.standings.slice(0, 3).map((s) => `${s.rank}. ${nameOf(s.agentId)}`).join("  ")}
+            </span>
+          )}
+        </span>
+      )}
+    </div>
+  );
+}
+
+export function WorldCanvas({
+  snapshot,
+  onPick,
+  onFollowChange,
+}: {
+  snapshot: {
+    herd: Array<{ id: string; name: string; handle: string; genes: string; mind: { doing: { place: string; act: string } }; born: number }>;
+    contests?: Contest[];
+  };
+  onPick?: (id: string) => void;
+  /** Fired on every follow change, so the HUD can mirror the engine exactly. */
+  onFollowChange?: (id: string | null) => void;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const xfRef = useRef<Xf | null>(null);
+  // The world is built once on mount; later snapshots are patched in, so a
+  // snapshot push can never rebuild (and re-centre) the camera.
+  const initialRef = useRef(snapshot);
+  const onPickRef = useRef(onPick);
+  const onFollowChangeRef = useRef(onFollowChange);
+  const mmRef = useRef<HTMLCanvasElement>(null);
+  /**
+   * Which parcel the rail is pointing at, read by the minimap every frame.
+   *
+   * A ref and not state on purpose: the pointer crossing nine buttons would
+   * otherwise re-render the whole canvas subtree on every crossing, and the
+   * minimap only needs the value at draw time, not a render.
+   */
+  const hoverRef = useRef<string | null>(null);
+
+  // --- district rail ---------------------------------------------------------
+  // Residents per parcel. PLACE_PARCEL is the same containment the minimap
+  // draws, so a llama can never be counted in one district and drawn in
+  // another. Only genuinely remote ground (the rivers, the fen, the outer
+  // meadows) maps to no parcel and goes uncounted — the pond and the oat trough
+  // are in town and count as such. See parcelOf() in locationsData.ts.
+  const counts = useMemo(() => {
+    const m = new Map<string, number>(DISTRICT_PARCELS.map((d) => [d.name, 0]));
+    for (const h of snapshot.herd) {
+      const p = PLACE_PARCEL.get(h.mind.doing.place);
+      if (p) m.set(p, (m.get(p) ?? 0) + 1);
+    }
+    return m;
+  }, [snapshot.herd]);
+
+  /** Frame a whole district. The camera eases there; see Xf.gotoTo. */
+  const flyTo = (p: { x: number; y: number; w: number; h: number }) => {
+    const xf = xfRef.current;
+    if (!xf) return;
+    const [cx, cy] = parcelCentre({ ...p, name: "" });
+    xf.gotoTo(cx * V, cy * V, fitParcelZoom({ ...p, name: "" }, xf.viewW, xf.viewH));
+  };
+
+  // --- contest channel (08 §10.1 / §10.3) ---------------------------------
+  // The route forces a specific contest; everywhere else the HUD follows the
+  // most urgent window in the snapshot, and a day with no contest stays idle.
+  const [forcedId, setForcedId] = useState<string | null>(() => routeContestId());
+  useEffect(() => {
+    const onHash = () => setForcedId(routeContestId());
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+
+  // a countdown and the 45s result card need a clock — but only while there is
+  // something to time, so a quiet day ticks nothing at all
+  const [now, setNow] = useState(() => Date.now());
+  const timed = (snapshot.contests?.length ?? 0) > 0;
+  useEffect(() => {
+    if (!timed) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [timed]);
+
+  const contest = useMemo(
+    () => pickContest(snapshot.contests, forcedId, now),
+    [snapshot.contests, forcedId, now],
+  );
+  const phase = contestPhase(contest, now);
+  const mark = useMemo<ContestMark | null>(
+    () =>
+      contest && phase !== "idle"
+        ? {
+            state: contest.state,
+            place: contest.place,
+            entrants: contest.entrants,
+            ranks: Object.fromEntries((contest.result?.standings ?? []).map((s) => [s.agentId, s.rank])),
+          }
+        : null,
+    [contest, phase],
+  );
+
+  useEffect(() => {
+    onPickRef.current = onPick;
+    onFollowChangeRef.current = onFollowChange;
+  }, [onPick, onFollowChange]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current!;
+    const ctx = canvas.getContext("2d")!;
+    const xf = new Xf(initialRef.current);
+    xfRef.current = xf;
+    // every follow change — pick, Free Cam, Escape, drag — reaches the HUD here
+    xf.onFollow = (id) => onFollowChangeRef.current?.(id);
+
+    // attach to global for SSE handlers (simple)
+    (window as unknown as Record<string, unknown>).__hermes_xf = xf;
+
+    let raf = 0;
+    let last = performance.now();
+    // ?fps=1 badge state — declared here so the frame loop can update it
+    const showFps = new URLSearchParams(window.location.search).get("fps") === "1";
+    let fpsFrames = 0, fpsAcc = 0, fpsWorst = 0, fpsWinStart = last, fpsPrev = last;
+    let fpsShown = { fps: 0, ms: 0, worst: 0 };
+
+    // --- sizing (DPR-aware, also reacts to layout changes, not just window resize)
+    function applySize() {
+      const rect = canvas.getBoundingClientRect();
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      canvas.width = Math.round(rect.width * dpr);
+      canvas.height = Math.round(rect.height * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      xf.setViewport(rect.width, rect.height, dpr);
+      // The minimap is a fixed-size overlay, so it follows the DPR rather than
+      // the layout: only a move to a display with a different ratio changes it.
+      const mm = mmRef.current;
+      if (mm) {
+        mm.width = Math.round(MM_W * dpr);
+        mm.height = Math.round(MM_H * dpr);
+      }
+    }
+    // The inline width:100% / height:560px pin the content box, so writing
+    // canvas.width here cannot re-trigger this observer.
+    applySize();
+    const ro = new ResizeObserver(applySize);
+    ro.observe(canvas);
+    // a window moved to a display with a different devicePixelRatio does not
+    // change the CSS box, so the observer alone would miss it
+    window.addEventListener("resize", applySize);
+
+    // --- camera interaction -------------------------------------------------
+    // One pointer pipeline for mouse / touch / pen. Every gesture calls an Xf
+    // camera method, and each of those drops follow mode, so the view always
+    // ends up where the user put it.
+    const pointers = new Map<number, { x: number; y: number }>();
+    let dragging = false;
+    let pinchDist = 0;
+    let travel = 0; // pointer travel since press — separates a drag from a click
+
+    const localXY = (clientX: number, clientY: number) => {
+      const r = canvas.getBoundingClientRect();
+      return { x: clientX - r.left, y: clientY - r.top };
+    };
+
+    const pickAgentAt = (clientX: number, clientY: number) => {
+      const r = canvas.getBoundingClientRect();
+      const sx = clientX - r.left;
+      const sy = clientY - r.top;
+      // find nearest agent by screen distance. 44px was the reach for a 63px
+      // sprite; tie it to NPC_H (x2 for the name tag, floor for zoomed-out
+      // maps) so a tap near a resident still picks them without stealing taps
+      // meant for open ground
+      let best: string | null = null;
+      let bestDist = Math.max(24, NPC_H * xf.cam.zoom * 2);
+      for (const a of xf.byId.values()) {
+        const ax = (a.x - xf.cam.x) * xf.cam.zoom + r.width / 2;
+        const ay = (a.y - xf.cam.y) * xf.cam.zoom + r.height / 2;
+        const d = Math.hypot(ax - sx, ay - sy);
+        if (d < bestDist) { bestDist = d; best = a.id; }
+      }
+      if (best) {
+        xf.setFollow(best);
+        onPickRef.current?.(best);
+      } else {
+        // Open ground lets go: a tap is the counterpart of Free Cam, so the
+        // camera is never stuck on a resident the player tapped by accident.
+        xf.setFollow(null);
+      }
+    };
+
+    const onPointerDown = (e: PointerEvent) => {
+      if (e.pointerType === "mouse" && e.button !== 0) return; // right click = context menu, not a gesture
+      canvas.focus({ preventScroll: true });
+      canvas.setPointerCapture(e.pointerId);
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.size === 1) {
+        dragging = true;
+        travel = 0;
+      } else if (pointers.size === 2) {
+        dragging = false;
+        travel = Infinity; // a pinch is never a click
+        const [a, b] = [...pointers.values()];
+        pinchDist = Math.hypot(a.x - b.x, a.y - b.y);
+      }
+    };
+
+    const onPointerMove = (e: PointerEvent) => {
+      const prev = pointers.get(e.pointerId);
+      if (!prev) return;
+      const next = { x: e.clientX, y: e.clientY };
+      pointers.set(e.pointerId, next);
+
+      if (pointers.size === 1 && dragging) {
+        const dx = next.x - prev.x;
+        const dy = next.y - prev.y;
+        travel += Math.hypot(dx, dy);
+        xf.panBy(dx, dy);
+        canvas.style.cursor = "grabbing";
+      } else if (pointers.size === 2) {
+        const [a, b] = [...pointers.values()];
+        const d = Math.hypot(a.x - b.x, a.y - b.y);
+        if (pinchDist > 0 && d > 0) {
+          const mid = localXY((a.x + b.x) / 2, (a.y + b.y) / 2);
+          xf.zoomAt(mid.x, mid.y, d / pinchDist);
+        }
+        pinchDist = d;
+        canvas.style.cursor = "grabbing";
+      }
+    };
+
+    /** Shared end-of-gesture bookkeeping. `cancelled` never picks an agent. */
+    const endPointer = (e: PointerEvent, cancelled: boolean) => {
+      const liftsLast = pointers.size === 1;
+      pointers.delete(e.pointerId);
+      if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
+      // always re-baseline: with a third finger the 2-finger span is stale, and
+      // reusing it would fire one bogus zoom jump
+      pinchDist = 0;
+      if (pointers.size === 1) {
+        // one finger is still down after a pinch: hand the pan over to it, and
+        // make sure the tail of that pinch can never be read as a tap
+        dragging = true;
+        travel = Infinity;
+      } else if (pointers.size === 0) {
+        dragging = false;
+        canvas.style.cursor = "grab";
+        // only a genuine tap picks a resident — a drag pans and stops there
+        if (!cancelled && liftsLast && travel <= DRAG_CLICK_SLOP) pickAgentAt(e.clientX, e.clientY);
+        travel = 0;
+      }
+    };
+
+    const onPointerUp = (e: PointerEvent) => endPointer(e, false);
+    // the browser took the gesture away (palm rejection, OS gesture) — that is
+    // not a tap, and acting on it would fly the camera to some resident
+    const onPointerCancel = (e: PointerEvent) => endPointer(e, true);
+
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const p = localXY(e.clientX, e.clientY);
+      // deltaMode 1 = lines, 2 = pages; normalise to something usable
+      const unit = e.deltaMode === 1 ? 0.05 : e.deltaMode === 2 ? 0.5 : 0.0015;
+      xf.zoomAt(p.x, p.y, Math.exp(-e.deltaY * unit));
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return; // leave browser shortcuts alone
+      // panBy takes a drag delta, so an arrow key is the negated view
+      // direction: ArrowRight means "show more of the east".
+      const step = e.shiftKey ? 220 : 70;
+      switch (e.key) {
+        case "ArrowLeft": case "a": case "A": xf.panBy(step, 0); break;
+        case "ArrowRight": case "d": case "D": xf.panBy(-step, 0); break;
+        case "ArrowUp": case "w": case "W": xf.panBy(0, step); break;
+        case "ArrowDown": case "s": case "S": xf.panBy(0, -step); break;
+        case "+": case "=": { const c = xf.centerPoint(); xf.zoomAt(c.x, c.y, 1.15); break; }
+        case "-": case "_": { const c = xf.centerPoint(); xf.zoomAt(c.x, c.y, 1 / 1.15); break; }
+        case "0": xf.resetCam(); break;
+        case "Escape": xf.setFollow(null); break;
+        default: return;
+      }
+      e.preventDefault();
+    };
+
+    canvas.addEventListener("pointerdown", onPointerDown);
+    canvas.addEventListener("pointermove", onPointerMove);
+    canvas.addEventListener("pointerup", onPointerUp);
+    canvas.addEventListener("pointercancel", onPointerCancel);
+    canvas.addEventListener("wheel", onWheel, { passive: false });
+    canvas.addEventListener("keydown", onKeyDown);
+
+    function frame(now: number) {
+      const dt = Math.min(0.05, (now - last) / 1000);
+      last = now;
+      xf.tick(dt);
+      // keep the DPR transform here: draw() only offsets the camera on top of it
+      ctx.setTransform(xf.dpr, 0, 0, xf.dpr, 0, 0);
+      xf.draw(ctx, xf.viewW, xf.viewH);
+      // The overview draws from the same loop rather than keeping a second
+      // rAF: two loops would read the camera half a frame apart and the box
+      // would visibly lag every pan.
+      const mm = mmRef.current;
+      if (mm) {
+        const mctx = mm.getContext("2d");
+        if (mctx) {
+          mctx.setTransform(xf.dpr, 0, 0, xf.dpr, 0, 0);
+          drawMinimap(mctx, {
+            cam: xf.cam,
+            viewW: xf.viewW,
+            viewH: xf.viewH,
+            agents: xf.byId.values(),
+            followId: xf.followId,
+            hover: hoverRef.current,
+          });
+        }
+      }
+      // ?fps=1 — live frame-rate badge for perf diagnosis (drag the map and
+      // read the numbers: fps = refresh rate, ms = avg frame cost, worst =
+      // slowest frame in the last second — spikes mean hitches)
+      if (showFps) {
+        fpsFrames++;
+        fpsWorst = Math.max(fpsWorst, now - fpsPrev);
+        if (now - fpsPrev > 0) fpsAcc += now - fpsPrev;
+        fpsPrev = now;
+        if (now - fpsWinStart >= 1000) {
+          fpsShown = { fps: fpsFrames, ms: fpsAcc / Math.max(1, fpsFrames), worst: fpsWorst };
+          fpsFrames = 0; fpsAcc = 0; fpsWorst = 0; fpsWinStart = now;
+        }
+        const s = fpsShown;
+        ctx.setTransform(xf.dpr, 0, 0, xf.dpr, 0, 0);
+        ctx.fillStyle = "rgba(10,10,12,0.72)";
+        ctx.fillRect(8, 8, 172, 20);
+        ctx.fillStyle = s.fps >= 50 ? "#7fd67f" : s.fps >= 30 ? "#e0b34c" : "#e06c6c";
+        ctx.font = "11px monospace";
+        ctx.fillText(`${s.fps} fps · ${s.ms.toFixed(1)}ms · worst ${s.worst.toFixed(0)}ms`, 14, 22);
+      }
+      raf = requestAnimationFrame(frame);
+    }
+    raf = requestAnimationFrame(frame);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+      xf.onFollow = null;
+      window.removeEventListener("resize", applySize);
+      canvas.removeEventListener("pointerdown", onPointerDown);
+      canvas.removeEventListener("pointermove", onPointerMove);
+      canvas.removeEventListener("pointerup", onPointerUp);
+      canvas.removeEventListener("pointercancel", onPointerCancel);
+      canvas.removeEventListener("wheel", onWheel);
+      canvas.removeEventListener("keydown", onKeyDown);
+      (window as unknown as Record<string, unknown>).__hermes_xf = undefined;
+    };
+  }, []);
+
+  // Push the contest channel into the engine (08 §10.2 — the ring, the tag
+  // colour, the venue glow and the audience nudge all read it from there).
+  // Declared after the mount effect, so xfRef is populated by the time it runs.
+  useEffect(() => {
+    xfRef.current?.setContest(mark);
+  }, [mark]);
+
+  // Keep xf in sync when the herd changes (new forks, residents leaving).
+  // The engine is built once on mount, so this both adds and removes.
+  useEffect(() => {
+    const xf = xfRef.current;
+    if (!xf) return;
+    // drop residents the server no longer has, or they wander on as ghosts
+    const live = new Set(snapshot.herd.map((h) => h.id));
+    for (const id of [...xf.byId.keys()]) {
+      if (!live.has(id)) xf.byId.delete(id);
+    }
+    for (const h of snapshot.herd) {
+      if (!xf.byId.has(h.id)) {
+        // Spawn where the resident actually is, read from the one location
+        // table — the same lookup the engine constructor does at engine.ts:339.
+        //
+        // This used to be a hardcoded `{ square: [104,62], barn: [44,44],
+        // pens: [84,90] }`, which are the square's coordinates from when the
+        // map was 210x128. The 5x build-out moved the town without moving this
+        // table, so anyone joining after mount appeared at tile (104, 62) — the
+        // far north-west, some 700 tiles from where the server said they were —
+        // and only walked to the right place when their next order arrived.
+        // Three of the hundred locations had entries; the other ninety-seven
+        // all shared the same fallback. That is the same class of bug the file
+        // header at constants.ts and shared/src/map.ts each document about
+        // themselves: one table became two, and only one of them got updated.
+        const loc = LOCATIONS.find((l) => l.id === h.mind.doing.place) ?? LOCATIONS[0]!;
+        // the same jitter the constructor uses, so a handful of arrivals do not
+        // stack on one tile and the separation pass does not have to push them
+        // apart on the first frame
+        const sx = loc.spot[0] * V + (Math.random() * 24 - 12);
+        const sy = loc.spot[1] * V + (Math.random() * 24 - 12);
+        const hid2 = hashId(h.id);
+        xf.byId.set(h.id, {
+          id: h.id, name: h.name, handle: h.handle, genes: h.genes,
+          x: sx, y: sy, tx: sx, ty: sy,
+          path: [], facing: 1, doing: h.mind.doing.act, place: h.mind.doing.place, mood: 0, born: h.born,
+          vx: 0, vy: 0, baseSpeed: 0.88 + (hid2 % 100) / 250, wanderTimer: 1 + Math.random() * 2.5, walkPhase: Math.random(), idlePhase: Math.random() * Math.PI * 2, targetPlace: h.mind.doing.place,
+        });
+      } else {
+        const a = xf.byId.get(h.id)!;
+        a.genes = h.genes; a.name = h.name;
+      }
+    }
+  }, [snapshot.herd]);
+
+  // Expose method to handle SSE order
+  useEffect(() => {
+    const xf = xfRef.current;
+    if (!xf) return;
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { id: string; act: string; place: string; secs: number };
+      xf.order(detail.id, detail.act, detail.place, detail.secs);
+    };
+    const spitHandler = (e: Event) => {
+      const d = (e as CustomEvent).detail as { from: string; to: string };
+      xf.spit(d.from, d.to);
+    };
+    const postHandler = (e: Event) => {
+      const d = (e as CustomEvent).detail as { t: number; by: string; text: string };
+      xf.post(d);
+    };
+    window.addEventListener("hermes:order", handler);
+    window.addEventListener("hermes:spit", spitHandler);
+    window.addEventListener("hermes:post", postHandler);
+    return () => {
+      window.removeEventListener("hermes:order", handler);
+      window.removeEventListener("hermes:spit", spitHandler);
+      window.removeEventListener("hermes:post", postHandler);
+    };
+  }, []);
+
+  return (
+    <div>
+    <div style={{ position: "relative" }}>
+      <canvas
+        ref={canvasRef}
+        className="town"
+        tabIndex={0}
+        aria-label="Town map. Drag or use arrow keys to pan, scroll or pinch to zoom, click a resident to follow."
+        style={{ width: "100%", height: "560px", display: "block", cursor: "grab" }}
+      />
+      <div style={{ position: "absolute", top: 8, right: 8, display: "flex", gap: 6 }}>
+        <button className="btn btn-ghost" style={{ padding: "6px 10px", fontSize: 11 }} onClick={() => xfRef.current?.resetCam()}>Reset</button>
+        <button className="btn btn-ghost" style={{ padding: "6px 10px", fontSize: 11 }} onClick={() => xfRef.current?.setFollow(null)}>Free Cam</button>
+      </div>
+      {/* The overview. aria-hidden because the rail below is the accessible
+          version of exactly this information, with real names attached — two
+          representations of one fact is a screen reader's problem, not a
+          feature. pointer-events:none keeps it read-only, which is the contract
+          the rail was built to honour. */}
+      <canvas
+        ref={mmRef}
+        className="minimap"
+        aria-hidden="true"
+        style={{ width: MM_W, height: MM_H }}
+      />
+      <div className="mono" style={{ position: "absolute", bottom: 8, left: 8, background: "var(--hud-paper)", border: "1px solid var(--hud-rule)", color: "var(--hud-ink)", boxShadow: "var(--hud-shadow)", padding: "4px 8px", fontSize: 11 }}>
+        Drag to pan · scroll/pinch to zoom at cursor · click a resident to follow · arrows to pan · 0 to reset
+      </div>
+      {/* 08 §10.1 — transient bar; nothing at all on a quiet day */}
+      {phase !== "idle" && contest && (
+        <ContestHud contest={contest} phase={phase} herd={snapshot.herd} now={now} />
+      )}
+    </div>
+    <nav className="district-rail" aria-label="Districts">
+      {DISTRICT_PARCELS.map((d) => (
+        <button
+          key={d.name}
+          className="district-tab"
+          onClick={() => flyTo(d)}
+          onMouseEnter={() => { hoverRef.current = d.name; }}
+          onMouseLeave={() => { if (hoverRef.current === d.name) hoverRef.current = null; }}
+          onFocus={() => { hoverRef.current = d.name; }}
+          onBlur={() => { if (hoverRef.current === d.name) hoverRef.current = null; }}
+        >
+          <span className="district-name">{d.name}</span>
+          <span className="district-count mono">{counts.get(d.name) ?? 0}</span>
+        </button>
+      ))}
+    </nav>
+    </div>
+  );
+}
