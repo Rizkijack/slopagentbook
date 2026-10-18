@@ -23,6 +23,25 @@
 // - Serving still happens from the instance's memory, so a cold instance shows
 //   its own herd until it reboots. The row is never wrong any more, but the
 //   live view can lag; converging that needs a periodic refresh from pg.
+// - MONEY is merged per record, not ours-wins (see the BRAWL block below).
+//   Three limits come with that:
+//   - Ties go to the writer's side (`>=` in newerRecord/newerTrade). At 1ms
+//     clock resolution two mutations in the same millisecond are a tie, so the
+//     writer's order wins rather than the row's.
+//   - `updatedAt` is each instance's LOCAL clock, and the clocks skew. Two
+//     instances funding the same vault can disagree about which is newer, and
+//     the loser is overwritten. Fixing that needs a server-authoritative
+//     counter (the `rev` column) or a per-vault optimistic check, which changes
+//     the save path's contract — deliberately not done here.
+//   - Two instances closing the SAME trade both write a ledger row for one
+//     tradeId; the union keeps one, but the vault balance each credits may
+//     disagree on PnL. The trade record itself converges (terminal beats open).
+// - The four BRAWL arrays are deliberately UNCAPPED, unlike feed/events/editions/
+//   quests/contests. They are financial records: a ledger row outlives the trade
+//   it references, and a cap that kept the newest rows would silently orphan
+//   history and destroy balances. The cost is that `town_state` grows without
+//   bound on the settlement rail; that is the accepted trade, and the thing to
+//   revisit if the row ever gets large.
 
 /** Tagged-template query function (also what a transaction hands out). */
 export type PgQuery = (strings: TemplateStringsArray, ...values: unknown[]) => Promise<Record<string, unknown>[]>;
@@ -116,6 +135,127 @@ function unionBy(
     }
   }
   return merged;
+}
+
+/**
+ * Union two keyed lists, then let `pick` decide which record survives for each
+ * id. `unionBy` alone always takes the writer's copy, which is wrong for money:
+ * a writer that has been running for an hour is not necessarily the one holding
+ * the newer balance.
+ */
+function unionByRule(
+  stored: Rec[],
+  mine: Rec[],
+  key: (row: Rec, i: number) => string,
+  pick: (storedRow: Rec, mineRow: Rec) => Rec,
+): Rec[] {
+  const out: Rec[] = [];
+  const index = new Map<string, number>();
+  for (const [i, row] of stored.entries()) {
+    const k = key(row, i);
+    index.set(k, out.length);
+    out.push(row);
+  }
+  for (const [i, row] of mine.entries()) {
+    const k = key(row, i);
+    const at = index.get(k);
+    if (at === undefined) {
+      index.set(k, out.length);
+      out.push(row);
+    } else {
+      out[at] = pick(out[at]!, row);
+    }
+  }
+  return out;
+}
+
+function num(value: unknown, fallback = 0): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+/**
+ * MONEY rule — greater `updatedAt` wins; when EITHER side lacks it the live
+ * (writer's) side wins.
+ *
+ * The legacy bias is deliberate and is the opposite of `unionBy`'s. A row
+ * written before `updatedAt` existed cannot be ordered against one that has it,
+ * so preferring stored would put us straight back where the bug started: the
+ * row's old balance outvoting the funding that just happened. `-1` means
+ * "unknown", and a tie of two unknowns goes to the writer — the same
+ * ours-wins-ties convention every other union here uses.
+ */
+function newerRecord(storedRow: Rec, mineRow: Rec): Rec {
+  const storedAt = num(storedRow.updatedAt, -1);
+  const mineAt = num(mineRow.updatedAt, -1);
+  return mineAt >= storedAt ? mineRow : storedRow;
+}
+
+/** A finished trade must never be walked back to `open` by a lagging instance. */
+function terminalRank(row: Rec): number {
+  return row.status === "open" ? 0 : 1;
+}
+
+/** Recency for a trade: updatedAt, else closedAt, else openedAt. */
+function tradeRecency(row: Rec): number {
+  return num(row.updatedAt, num(row.closedAt, num(row.openedAt)));
+}
+
+/**
+ * TRADES rule — terminal beats open, then the newer record wins.
+ *
+ * `balance` is debited when a trade opens and credited when it closes, so an
+ * `open` record resurrected over a `closed` one would leave the vault debited
+ * twice for money that already settled. Rank is checked BEFORE recency so a
+ * stale-but-recent `open` cannot beat a settled close; `updatedAt ?? closedAt ??
+ * openedAt` orders two records that are both terminal.
+ */
+function newerTrade(storedRow: Rec, mineRow: Rec): Rec {
+  const storedTerminal = terminalRank(storedRow);
+  const mineTerminal = terminalRank(mineRow);
+  if (storedTerminal !== mineTerminal) return mineTerminal > storedTerminal ? mineRow : storedRow;
+  return tradeRecency(mineRow) >= tradeRecency(storedRow) ? mineRow : storedRow;
+}
+
+function asStrings(value: unknown): string[] {
+  return Array.isArray(value) ? value.map(String) : [];
+}
+
+/**
+ * CALLERS rule — recency decides the record, `followers` unions inside it.
+ *
+ * `followers` is a grow-only set (nobody is ever un-followed), so overwriting it
+ * would drop followers; the derived stats, on the other hand, summarise a
+ * ledger that is itself merged, so they are taken from whichever side is newer
+ * rather than recomputed here.
+ */
+function newerCaller(storedRow: Rec, mineRow: Rec): Rec {
+  const winner = newerRecord(storedRow, mineRow);
+  const followers = [...new Set([...asStrings(storedRow.followers), ...asStrings(mineRow.followers)])];
+  return { ...winner, followers };
+}
+
+/**
+ * Drop a tombstoned resident from every caller's follower list.
+ *
+ * A SEPARATE pass, not part of `newerCaller`: that only runs for records both
+ * sides carry, and a follower list can hold a dead resident on a record only one
+ * side ever had. Without this the entry would sit there forever — nothing else
+ * ever rewrites the array.
+ */
+function pruneFollowers(row: Rec, deadResidents: Set<string>): Rec {
+  if (!Array.isArray(row.followers)) return row;
+  const kept = asStrings(row.followers).filter((id) => !deadResidents.has(id));
+  return kept.length === asStrings(row.followers).length ? row : { ...row, followers: kept };
+}
+
+/**
+ * Tombstone filter for the money records. `alive()` cannot be reused: it looks
+ * at `id`/`by`/`agentId`, and these records name their resident under different
+ * keys (`keeperId`, `residentId`, `callerId`). Without this a removed resident
+ * would leave a funded vault and a ledger row that the next merge revives.
+ */
+function aliveMoney<T extends Rec>(rows: T[], fields: string[], dead: Set<string>): T[] {
+  return rows.filter((r) => !fields.some((f) => typeof r[f] === "string" && dead.has(String(r[f]))));
 }
 
 function byNumber(field: string, dir: 1 | -1) {
@@ -248,6 +388,46 @@ export function mergeSnapshots(stored: unknown, mine: unknown): Rec {
   const maxHerd = typeof config.maxHerd === "number" ? config.maxHerd : 0;
   const herd = dedupeHerdByName(alive(unionBy(asArr(a.herd), asArr(b.herd), (r, i) => keyOf(r, `herd${i}`))));
 
+  // ---- BRAWL money ----
+  //
+  // These four were never in the key list, so they fell through `...a` and the
+  // STORED row overwrote them on every save: with DATABASE_URL set, every
+  // funding, leash change, closed trade, ledger row and registered caller was
+  // discarded while the instance kept serving the new values from memory.
+  //
+  // None of them can take `unionBy`'s ours-wins rule. They are money, they are
+  // not monotonic (a balance is debited on open and credited on close), and a
+  // writer that booted an hour ago is not the authority on the current balance.
+  // So each gets the rule its own shape demands.
+  //
+  // `callerId` is deliberately NOT a tombstone key here, on trades or ledger:
+  // it holds a `caller_…` id from `registerCaller`, which is never a resident id,
+  // so it could never match `deadResidents`. The resident a trade belongs to is
+  // `agentId`. A caller's own removal is caught by `residentId` instead.
+  const vaults = aliveMoney(
+    unionByRule(asArr(a.vaults), asArr(b.vaults), (r, i) => keyOf(r, `vault${i}`), newerRecord),
+    ["keeperId", "agentId"],
+    deadResidents,
+  );
+  const trades = aliveMoney(
+    unionByRule(asArr(a.trades), asArr(b.trades), (r, i) => keyOf(r, `trade${i}`), newerTrade),
+    ["agentId"],
+    deadResidents,
+  );
+  // LEDGER rule: append-only, exactly one row per closed trade, so it is a plain
+  // union keyed by tradeId and the writer's copy wins a conflict. No recency
+  // test is needed because the row for a given tradeId is never rewritten.
+  const ledger = aliveMoney(
+    unionBy(asArr(a.ledger), asArr(b.ledger), (r, i) => String(r.tradeId ?? `ledger${i}`)),
+    ["agentId"],
+    deadResidents,
+  );
+  const callers = aliveMoney(
+    unionByRule(asArr(a.callers), asArr(b.callers), (r, i) => keyOf(r, `caller${i}`), newerCaller),
+    ["residentId"],
+    deadResidents,
+  ).map((c) => pruneFollowers(c, deadResidents));
+
   return {
     // fields this code does not know about survive the round trip
     ...a,
@@ -285,6 +465,10 @@ export function mergeSnapshots(stored: unknown, mine: unknown): Rec {
       .slice(0, 8),
     agents,
     tombstones: tombs,
+    vaults,
+    trades,
+    ledger,
+    callers,
     // single object: no union possible, the ticker's copy stands
     season: b.season ?? a.season,
   };
@@ -311,6 +495,18 @@ export interface RemovalPlan {
     children: string[];
     contestEntrances: number;
     seasonStandings: number;
+    /**
+     * The BRAWL rows a removal would take with it.
+     *
+     * Reported, not hidden: the merge drops these for a tombstoned resident
+     * (see `aliveMoney`), so a dry run that said "safe to remove" while a
+     * balance and a ledger history were about to disappear was lying. `vaults`
+     * carries `balance` so the operator sees the money, not just a count.
+     */
+    vaults: Rec[];
+    trades: Rec[];
+    ledgerRows: Rec[];
+    callers: Rec[];
   };
 }
 
@@ -348,17 +544,32 @@ export function planRemoval(snapshot: unknown, id: string): RemovalPlan {
     (c) => c?.state === "live" && Array.isArray(c?.entrants) && c.entrants.includes(id),
   );
 
+  // BRAWL money this resident owns. `keeperId` OR `agentId` counts: a keeper can
+  // be named on a vault they do not trade, and an agent holds one they keep.
+  const vaults = asArr(s.vaults).filter((v) => v?.keeperId === id || v?.agentId === id);
+  const trades = asArr(s.trades).filter((t) => t?.agentId === id);
+  const ledgerRows = asArr(s.ledger).filter((e) => e?.agentId === id);
+  const callers = asArr(s.callers).filter((c) => c?.residentId === id);
+  // A positive balance is REAL capital. `aliveMoney` would drop the vault row —
+  // and the balance with it — at the next save, silently and without a refund,
+  // because there is no settlement contract to recover it from (testnet.ts:62).
+  // So the removal stops here instead. A zero-balance vault carries no money and
+  // is removable; the ledger rows behind it are history, already reported.
+  const heldBalance = vaults.reduce((sum, v) => sum + num(v?.balance), 0);
+
   return {
     id,
     name: typeof resident?.name === "string" ? resident.name : "(not in herd)",
-    ok: Boolean(resident) && children.length === 0 && !liveContest,
+    ok: Boolean(resident) && children.length === 0 && !liveContest && heldBalance === 0,
     blockedBy: !resident
       ? "no such resident"
       : children.length > 0
         ? `has ${children.length} child(ren): ${children.join(", ")}`
         : liveContest
           ? "is in a live contest"
-          : undefined,
+          : heldBalance > 0
+            ? `vault holds a balance of ${heldBalance}; withdraw it before removing this resident`
+            : undefined,
     wouldRemove: {
       resident: Boolean(resident),
       agentRecords: agents.map((r) => String(r?.id)),
@@ -367,6 +578,10 @@ export function planRemoval(snapshot: unknown, id: string): RemovalPlan {
       children,
       contestEntrances,
       seasonStandings,
+      vaults,
+      trades,
+      ledgerRows,
+      callers,
     },
   };
 }

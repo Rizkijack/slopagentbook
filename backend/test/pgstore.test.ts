@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { ensureSchema, mergeSnapshots, normalizeHerd, pgLoad, pgSave } from "../src/pgstore.js";
+import { ensureSchema, mergeSnapshots, normalizeHerd, pgLoad, pgSave, planRemoval } from "../src/pgstore.js";
 
 // pgstore is where the town lost residents: every Vercel instance holds its own
 // in-memory world and the row is one JSONB blob, so a plain upsert made a
@@ -127,6 +127,324 @@ function snap(over: Snap = {}): Snap {
     ...over,
   };
 }
+
+// ---------------------------------------------------------------------------
+// BRAWL money — vault.ts records, and why they need their own merge rules
+// ---------------------------------------------------------------------------
+//
+// The whole BRAWL suite ran file-based (DATABASE_URL unset), so `pgSave` was
+// never entered by any money test and the town stayed green while production
+// lost every funding. These fixtures are deliberately plain records:
+// `mergeSnapshots` works on untyped rows, so what is pinned here is the merge
+// rule, not the TypeScript shape.
+
+function vault(id: string, over: Snap = {}): Snap {
+  return {
+    id,
+    keeperId: "keeper",
+    agentId: "trader",
+    balance: 0,
+    leash: { daily: 1, perTrade: 0.25, share: 20, sl: -20, tp: 40 },
+    paused: false,
+    createdAt: 1_000,
+    ...over,
+  };
+}
+
+function trade(id: string, over: Snap = {}): Snap {
+  return {
+    id,
+    vaultId: "vault_1",
+    agentId: "trader",
+    size: 1,
+    entryPrice: 100,
+    pnl: 0,
+    status: "open",
+    openedAt: 1_000,
+    ...over,
+  };
+}
+
+/** One row per closed trade, so `tradeId` is the natural key. */
+function entry(tradeId: string, over: Snap = {}): Snap {
+  return { tradeId, agentId: "trader", pnl: 0, callerPaid: 0, keeperPaid: 0, t: 1_000, ...over };
+}
+
+function caller(id: string, over: Snap = {}): Snap {
+  return { id, residentId: "caller_resident", handle: "caller", winRate: 0, totalPnl: 0, followers: [], ...over };
+}
+
+describe("BRAWL money survives pgSave — the lost-update rule for money", () => {
+  it("a funded vault survives pgSave -> pgLoad", async () => {
+    // THE regression test for the reported bug. With DATABASE_URL set, pgSave
+    // writes mergeSnapshots(stored, mine), and money was not one of the merged
+    // fields — so every funding was discarded on the next write while the
+    // instance kept serving the funded balance out of memory.
+    const db = fakeDb(snap({ vaults: [], trades: [], ledger: [], callers: [] }));
+
+    await pgSave(db.sql, snap({ vaults: [vault("vault_1", { balance: 250, updatedAt: 9_000 })] }));
+
+    const after = (await pgLoad(db.sql)) as Snap;
+    expect((after.vaults as Snap[]).map((v) => v.balance)).toEqual([250]);
+  });
+
+  it("a stale instance cannot revert a funding", async () => {
+    // instance B booted before A funded and still believes the vault is empty
+    const shared: DbState = { row: { snapshot: snap({ vaults: [] }), rev: 1 } };
+
+    const a = fakeDb(undefined, shared);
+    await pgSave(a.sql, snap({ vaults: [vault("vault_1", { balance: 250, updatedAt: 9_000 })] }));
+
+    const b = fakeDb(undefined, shared);
+    await pgSave(b.sql, snap({ vaults: [vault("vault_1", { balance: 0, updatedAt: 1_000 })] }));
+
+    expect(((shared.row!.snapshot as Snap).vaults as Snap[])[0]!.balance).toBe(250);
+  });
+
+  it("two instances' ledger rows both survive, neither duplicated", async () => {
+    const shared: DbState = { row: { snapshot: snap({ ledger: [] }), rev: 1 } };
+
+    const a = fakeDb(undefined, shared);
+    await pgSave(a.sql, snap({ ledger: [entry("t1", { pnl: 5 }), entry("t2", { pnl: -2 })] }));
+
+    const b = fakeDb(undefined, shared);
+    // B has only its own close, and re-sends t2 because it was in its memory too
+    await pgSave(b.sql, snap({ ledger: [entry("t2", { pnl: -2 }), entry("t3", { pnl: 9 })] }));
+
+    const rows = (shared.row!.snapshot as Snap).ledger as Snap[];
+    expect(rows.map((r) => r.tradeId).sort()).toEqual(["t1", "t2", "t3"]);
+  });
+
+  it("a leash change and a halt survive a stale instance's save", async () => {
+    const shared: DbState = { row: { snapshot: snap({ vaults: [] }), rev: 1 } };
+
+    const a = fakeDb(undefined, shared);
+    await pgSave(
+      a.sql,
+      snap({ vaults: [vault("vault_1", { paused: true, leash: { daily: 9, perTrade: 9, share: 9, sl: -9, tp: 9 }, updatedAt: 9_000 })] }),
+    );
+
+    const b = fakeDb(undefined, shared);
+    await pgSave(b.sql, snap({ vaults: [vault("vault_1", { paused: false, updatedAt: 1_000 })] }));
+
+    const kept = (shared.row!.snapshot as Snap).vaults as Snap[];
+    expect(kept[0]!.paused).toBe(true);
+    expect((kept[0]!.leash as Snap).daily).toBe(9);
+  });
+
+  it("a closed trade and its ledger row survive a stale instance's save", async () => {
+    const shared: DbState = { row: { snapshot: snap({ trades: [], ledger: [] }), rev: 1 } };
+
+    const a = fakeDb(undefined, shared);
+    await pgSave(
+      a.sql,
+      snap({
+        trades: [trade("t1", { status: "closed", pnl: 5, closedAt: 9_000, updatedAt: 9_000 })],
+        ledger: [entry("t1", { pnl: 5, t: 9_000 })],
+      }),
+    );
+
+    // B booted before the close and still holds the trade open
+    const b = fakeDb(undefined, shared);
+    await pgSave(b.sql, snap({ trades: [trade("t1", { status: "open", updatedAt: 1_000 })] }));
+
+    const after = (shared.row!.snapshot as Snap);
+    expect((after.trades as Snap[])[0]!.status).toBe("closed");
+    expect((after.ledger as Snap[]).map((r) => r.tradeId)).toEqual(["t1"]);
+  });
+
+  it("a registered caller survives a stale instance's save, with both followers", async () => {
+    const shared: DbState = { row: { snapshot: snap({ callers: [] }), rev: 1 } };
+
+    const a = fakeDb(undefined, shared);
+    await pgSave(a.sql, snap({ callers: [caller("caller_1", { followers: ["f1"], updatedAt: 9_000 })] }));
+
+    // B has never heard of the registration and re-saves an empty registry
+    const b = fakeDb(undefined, shared);
+    await pgSave(b.sql, snap({ callers: [] }));
+
+    const kept = (shared.row!.snapshot as Snap).callers as Snap[];
+    expect(kept.map((c) => c.id)).toEqual(["caller_1"]);
+    expect(kept[0]!.followers).toEqual(["f1"]);
+  });
+});
+
+describe("mergeSnapshots — the BRAWL money contract", () => {
+  const mergedOf = (stored: Snap, mine: Snap) => mergeSnapshots(snap(stored), snap(mine)) as Snap;
+
+  it("unions ledger rows by tradeId, the live side winning a conflict", () => {
+    const merged = mergedOf(
+      { ledger: [entry("t1", { pnl: 5 })] },
+      { ledger: [entry("t1", { pnl: 50 }), entry("t2", { pnl: 7 })] },
+    );
+
+    const rows = merged.ledger as Snap[];
+    expect(rows).toHaveLength(2); // one row per closed trade, never duplicated
+    expect(rows.find((r) => r.tradeId === "t1")!.pnl).toBe(50);
+  });
+
+  it("never lets a stale open trade overwrite a closed one", () => {
+    // balance is debited at open and credited at close, so resurrecting an
+    // `open` row would silently rewrite money that already settled.
+    // RANK and RECENCY DISAGREE here: the stored `open` is newer (9_000) than the
+    // live `closed` (1_000), so only the terminal-first rule keeps this correct.
+    // The winner is on the LIVE side on purpose — a rule inverted to "stored
+    // always wins" must not be able to pass this.
+    const merged = mergedOf(
+      { trades: [trade("t1", { status: "open", updatedAt: 9_000 })] },
+      { trades: [trade("t1", { status: "closed", pnl: 5, closedAt: 1_000, updatedAt: 1_000 })] },
+    );
+
+    const kept = (merged.trades as Snap[])[0]!;
+    expect(kept.status).toBe("closed");
+    expect(kept.pnl).toBe(5);
+  });
+
+  it("keeps a rejected trade terminal against a newer stale open record", () => {
+    // the mirror of the case above: the LIVE side holds the terminal record and
+    // the STORED side holds a newer `open` one
+    const merged = mergedOf(
+      { trades: [trade("t1", { status: "open", updatedAt: 9_000 })] },
+      { trades: [trade("t1", { status: "rejected", reason: "leash", updatedAt: 1_000 })] },
+    );
+
+    expect((merged.trades as Snap[])[0]!.status).toBe("rejected");
+  });
+
+  it("takes the vault with the greater updatedAt", () => {
+    // the winner is the LIVE side, so "stored always wins" cannot pass
+    const merged = mergedOf(
+      { vaults: [vault("vault_1", { balance: 0, updatedAt: 1_000 })] },
+      { vaults: [vault("vault_1", { balance: 250, updatedAt: 9_000 })] },
+    );
+
+    expect((merged.vaults as Snap[])[0]!.balance).toBe(250);
+  });
+
+  it("lets the live side win when the stored row predates updatedAt", () => {
+    // a save written before updatedAt existed must still merge, and must not
+    // lose to itself on a tie of "neither side knows when this changed"
+    const merged = mergedOf(
+      { vaults: [vault("vault_1", { balance: 100 })] },
+      { vaults: [vault("vault_1", { balance: 250, updatedAt: 9_000 })] },
+    );
+
+    expect((merged.vaults as Snap[])[0]!.balance).toBe(250);
+  });
+
+  it("does not throw when neither side carries updatedAt", () => {
+    let merged!: Snap;
+    expect(() => {
+      merged = mergedOf(
+        { vaults: [vault("vault_1", { balance: 100 })] },
+        { vaults: [vault("vault_1", { balance: 7 })] },
+      );
+    }).not.toThrow();
+    expect((merged.vaults as Snap[])[0]!.balance).toBe(7); // live wins the legacy tie
+  });
+
+  it("unions followers within a caller record and takes stats from the newer side", () => {
+    const merged = mergedOf(
+      { callers: [caller("caller_1", { followers: ["f1"], totalPnl: 5, updatedAt: 1_000 })] },
+      { callers: [caller("caller_1", { followers: ["f2"], totalPnl: 50, updatedAt: 9_000 })] },
+    );
+
+    const kept = (merged.callers as Snap[])[0]!;
+    // followers is a grow-only set, so it unions rather than being overwritten
+    expect([...(kept.followers as string[])].sort()).toEqual(["f1", "f2"]);
+    // the derived stats come from whichever record is newer
+    expect(kept.totalPnl).toBe(50);
+  });
+
+  it("drops a tombstoned resident from a caller's follower list", () => {
+    // the record survives (the caller is alive); only the dead follower's entry
+    // is removed, otherwise it would sit in followers forever
+    const merged = mergedOf(
+      { callers: [caller("caller_1", { followers: ["gone", "alive"], updatedAt: 1_000 })] },
+      { tombstones: [{ id: "gone", reason: "admin", at: 1, agentIds: [] }] },
+    );
+
+    expect((merged.callers as Snap[])[0]!.followers).toEqual(["alive"]);
+  });
+
+  it("drops a tombstoned resident's vault, ledger rows, caller and agent row", () => {
+    const merged = mergedOf(
+      {
+        vaults: [vault("vault_1", { agentId: "gone" }), vault("vault_2", { agentId: "here" })],
+        ledger: [entry("t1", { agentId: "gone" }), entry("t2", { agentId: "here" })],
+        callers: [caller("caller_1", { residentId: "gone" })],
+        agents: [{ id: "ag1", residentId: "gone" }],
+      },
+      { tombstones: [{ id: "gone", reason: "admin", at: 1, agentIds: ["ag1"] }] },
+    );
+
+    expect((merged.vaults as Snap[]).map((v) => v.id)).toEqual(["vault_2"]);
+    expect((merged.ledger as Snap[]).map((r) => r.tradeId)).toEqual(["t2"]);
+    expect((merged.callers as Snap[])).toEqual([]);
+    expect((merged.agents as Snap[])).toEqual([]);
+  });
+
+  it("leaves the four fields empty when neither side has them", () => {
+    const merged = mergeSnapshots(snap(), snap()) as Snap;
+    expect(merged.vaults).toEqual([]);
+    expect(merged.trades).toEqual([]);
+    expect(merged.ledger).toEqual([]);
+    expect(merged.callers).toEqual([]);
+  });
+});
+
+describe("planRemoval — money is never destroyed silently", () => {
+  const townWithVault = (over: Snap = {}) =>
+    snap({
+      herd: [resident("A")],
+      vaults: [vault("vault_1", { keeperId: "A", agentId: "A", balance: 0, updatedAt: 1_000 })],
+      trades: [trade("t1", { agentId: "A", status: "closed" })],
+      ledger: [entry("t1", { agentId: "A" })],
+      callers: [caller("caller_1", { residentId: "A" })],
+      ...over,
+    });
+
+  const funded = () =>
+    townWithVault({ vaults: [vault("vault_1", { keeperId: "A", agentId: "A", balance: 2.5, updatedAt: 1_000 })] });
+
+  it("refuses to remove a resident whose vault still holds a balance", () => {
+    const plan = planRemoval(funded(), "A");
+
+    expect(plan.ok).toBe(false);
+    expect(plan.blockedBy).toMatch(/balance/i);
+  });
+
+  it("reports the money it WOULD destroy, so a dry run is not a lie", () => {
+    const plan = planRemoval(funded(), "A");
+
+    // the operator must see the balance AND the ledger history in the dry run
+    expect(plan.wouldRemove.vaults).toHaveLength(1);
+    expect(plan.wouldRemove.vaults[0]!.balance).toBe(2.5);
+    expect(plan.wouldRemove.trades).toHaveLength(1);
+    expect(plan.wouldRemove.ledgerRows).toHaveLength(1);
+    expect(plan.wouldRemove.callers).toHaveLength(1);
+  });
+
+  it("allows removal when the vault is empty", () => {
+    const plan = planRemoval(townWithVault(), "A");
+
+    expect(plan.ok).toBe(true);
+    expect(plan.wouldRemove.vaults).toHaveLength(1);
+    expect(plan.wouldRemove.ledgerRows).toHaveLength(1);
+  });
+
+  it("still reports the money when a pre-existing refusal is what blocks", () => {
+    const withChild = townWithVault({
+      herd: [resident("A"), resident("B", { parent: "A" })],
+      vaults: [vault("vault_1", { keeperId: "A", agentId: "A", balance: 9, updatedAt: 1_000 })],
+    });
+    const plan = planRemoval(withChild, "A");
+
+    expect(plan.ok).toBe(false);
+    expect(plan.blockedBy).toMatch(/child/); // the pre-existing refusal still wins
+    expect(plan.wouldRemove.vaults[0]!.balance).toBe(9);
+  });
+});
 
 describe("ensureSchema", () => {
   it("creates town_state and adds the rev column", async () => {

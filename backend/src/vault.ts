@@ -51,6 +51,7 @@ export function createVault(world: Parameters<typeof vaults>[0], input: CreateVa
   const leash = parseLeash(input.leash);
   if (!input.keeperId) throw new BrawlError("keeperId is required");
   if (!input.agentId) throw new BrawlError("agentId is required");
+  const now = Date.now();
   const vault: Vault = {
     id: uid("vault_"),
     keeperId: input.keeperId,
@@ -58,7 +59,8 @@ export function createVault(world: Parameters<typeof vaults>[0], input: CreateVa
     balance: 0,
     leash,
     paused: false,
-    createdAt: Date.now(),
+    createdAt: now,
+    updatedAt: now,
   };
   vaults(world).push(vault);
   return vault;
@@ -79,22 +81,26 @@ export function spentToday(world: Parameters<typeof trades>[0], vaultId: string,
 export function fundVault(vault: Vault, amount: number): Vault {
   if (!(amount > 0)) throw new BrawlError("fund amount must be > 0");
   vault.balance += amount;
+  vault.updatedAt = Date.now();
   return vault;
 }
 
 export function updateLeash(vault: Vault, next: unknown): Vault {
   vault.leash = parseLeash(next);
+  vault.updatedAt = Date.now();
   return vault;
 }
 
 /** Kill switch. Blocks the agent; the keeper keeps the balance. */
 export function haltVault(vault: Vault): Vault {
   vault.paused = true;
+  vault.updatedAt = Date.now();
   return vault;
 }
 
 export function resumeVault(vault: Vault): Vault {
   vault.paused = false;
+  vault.updatedAt = Date.now();
   return vault;
 }
 
@@ -137,23 +143,28 @@ export function openTrade(world: Parameters<typeof trades>[0] & Parameters<typeo
       status: "rejected",
       reason: check.reason,
       openedAt: Date.now(),
+      updatedAt: Date.now(),
     };
     trades(world).push(rejected);
     return { ok: false, reason: check.reason };
   }
   if (input.size > vault.balance) {
-    const rejected: Trade = { ...mkTrade(input), status: "rejected", reason: "size exceeds the vault balance" };
+    const rejected: Trade = { ...mkTrade(input), status: "rejected", reason: "size exceeds the vault balance", updatedAt: Date.now() };
     trades(world).push(rejected);
     return { ok: false, reason: "size exceeds the vault balance" };
   }
   const trade = mkTrade(input);
   trade.status = "open";
   vault.balance -= input.size;
+  // the debit is a money mutation: without the stamp the credit on close could
+  // lose to a stale instance that still believes the vault is untouched
+  vault.updatedAt = Date.now();
   trades(world).push(trade);
   return { ok: true, trade };
 }
 
 function mkTrade(input: OpenTradeInput): Trade {
+  const now = Date.now();
   return {
     id: uid("trade_"),
     vaultId: input.vaultId,
@@ -163,7 +174,8 @@ function mkTrade(input: OpenTradeInput): Trade {
     entryPrice: input.entryPrice,
     pnl: 0,
     status: "open",
-    openedAt: Date.now(),
+    openedAt: now,
+    updatedAt: now,
   };
 }
 
@@ -185,12 +197,17 @@ export function closeTrade(
   if (!vault) throw new BrawlError("vault not found", 404);
 
   const { pnl, callerPaid, keeperPaid } = settle(trade, vault.leash, rawMovePct);
+  const closedAt = Date.now();
   trade.status = "closed";
   trade.exitPrice = trade.entryPrice * (1 + rawMovePct / 100);
   trade.pnl = pnl;
-  trade.closedAt = Date.now();
+  trade.closedAt = closedAt;
+  // stamped as well as closedAt: the merge prefers a terminal record over a
+  // stale `open` one, and updatedAt is what orders two terminal records
+  trade.updatedAt = closedAt;
 
   vault.balance += trade.size + keeperPaid; // principal + keeper's net share; callerPaid is paid out of pnl
+  vault.updatedAt = closedAt;
 
   const entry: LedgerEntry = {
     tradeId: trade.id,
@@ -199,7 +216,7 @@ export function closeTrade(
     pnl,
     callerPaid,
     keeperPaid,
-    t: Date.now(),
+    t: closedAt,
   };
   ledger(world).push(entry);
   return { trade, entry, vault };
@@ -213,7 +230,7 @@ export function registerCaller(world: Parameters<typeof callers>[0], residentId:
   if (callers(world).some((c) => c.residentId === residentId)) {
     throw new BrawlError("caller already registered");
   }
-  const caller: Caller = { id: uid("caller_"), residentId, handle, winRate: 0, totalPnl: 0, followers: [] };
+  const caller: Caller = { id: uid("caller_"), residentId, handle, winRate: 0, totalPnl: 0, followers: [], updatedAt: Date.now() };
   callers(world).push(caller);
   return caller;
 }
@@ -221,7 +238,10 @@ export function registerCaller(world: Parameters<typeof callers>[0], residentId:
 export function followCaller(world: Parameters<typeof callers>[0], callerId: string, followerId: string): Caller {
   const caller = callers(world).find((c) => c.id === callerId);
   if (!caller) throw new BrawlError("caller not found", 404);
-  if (!caller.followers.includes(followerId)) caller.followers.push(followerId);
+  if (!caller.followers.includes(followerId)) {
+    caller.followers.push(followerId);
+    caller.updatedAt = Date.now();
+  }
   return caller;
 }
 
@@ -236,8 +256,16 @@ export function refreshCallerStats(
   for (const caller of callers(world)) {
     const rows = ledger(world).filter((e) => e.callerId === caller.id);
     const wins = rows.filter((e) => e.pnl > 0).length;
-    caller.winRate = rows.length ? wins / rows.length : 0;
-    caller.totalPnl = rows.reduce((s, e) => s + e.pnl, 0);
+    const winRate = rows.length ? wins / rows.length : 0;
+    const totalPnl = rows.reduce((s, e) => s + e.pnl, 0);
+    // Only stamped when the value actually MOVED. This runs on a public GET, and
+    // stamping unconditionally would let a stale instance claim recency just by
+    // recomputing — the merge takes the stats from whichever side is newer.
+    if (caller.winRate !== winRate || caller.totalPnl !== totalPnl) {
+      caller.winRate = winRate;
+      caller.totalPnl = totalPnl;
+      caller.updatedAt = Date.now();
+    }
   }
 }
 

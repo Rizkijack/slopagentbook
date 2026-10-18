@@ -264,17 +264,24 @@ async function reloadFromStore(path: string, world: TownSnapshot): Promise<boole
     const stored = await loadWithRecovery(path);
     if (!isTownSnapshot(stored)) return false;
     const merged = mergeSnapshots(stored, world);
-    // Only the three fields the merge genuinely computes. `mergeSnapshots`
-    // returns `...a` for everything it does not merge, and it does NOT merge
-    // `vaults`, `trades`, `ledger` or `callers` — so applying the whole merged
-    // object would overwrite this instance's live money with the row's older
-    // copy, on a path any junk token can reach. Narrowing to what auth actually
-    // reads (agents + herd for the lookup, tombstones so those two stay honest)
-    // makes the reload unable to revert anything else.
+    // Only the three fields AUTH actually reads. This narrowing stays narrow even
+    // though the reason it was written has since been fixed: `mergeSnapshots`
+    // now merges `vaults`/`trades`/`ledger`/`callers` too, and applying them here
+    // would still be wrong, for two reasons that have nothing to do with money
+    // being lost.
     //
-    // The underlying defect is in pgstore, and it is NOT fixed here: `pgSave`
-    // persists those same four fields from the stored row, so keeper funding does
-    // not survive a save in production at all. That is a separate change.
+    // 1. This reload runs because a CREDENTIAL LOOKUP MISSED — an unauthenticated
+    //    caller with a random token reaches it. Merging four financial arrays on
+    //    that trigger means anonymous traffic drives record reconciliation.
+    // 2. A merge result is a union, so applying it would MOVE this instance's
+    //    money to the row's view. Refunding and closing are deliberate keeper
+    //    actions with their own routes; a credential miss must never quietly
+    //    undo one.
+    //
+    // What auth needs is the registry (`agents`), the residents it resolves
+    // against (`herd`), and the tombstones that keep those two honest. Widening
+    // this `Object.assign` to "let the merge handle money too" would reopen that
+    // hole on every auth miss — keep it at these three.
     Object.assign(world, {
       agents: merged.agents,
       herd: merged.herd,

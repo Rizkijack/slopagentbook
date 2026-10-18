@@ -1,7 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   createVault, getVault, fundVault, haltVault, resumeVault, openTrade, closeTrade,
-  spentToday, registerCaller, followCaller, refreshCallerStats, hiscores, BrawlError,
+  spentToday, registerCaller, followCaller, refreshCallerStats, hiscores, updateLeash, BrawlError,
 } from "../src/vault.js";
 
 // The vault layer, tested against a minimal in-memory world. These are the
@@ -149,5 +149,125 @@ describe("callers and hiscores", () => {
     expect(board[0]?.agentId).toBe("a");
     expect(board[0]?.trades).toBe(2);
     expect(board[0]?.wins).toBe(1);
+  });
+});
+
+// The merge in pgstore.ts orders two versions of one money record by updatedAt.
+// Without these stamps the whole rule is inert — a vault with no updatedAt on
+// either side always loses to the writer, which is the bug that lost production
+// funding. Every mutation therefore has to move the stamp, or be a deliberate
+// exception. `vi.setSystemTime` keeps them exactly ordered instead of racing the
+// 1ms clock resolution.
+describe("updatedAt — the merge key for money", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const step = (ms: number) => vi.setSystemTime(ms);
+
+  it("stamps a vault on create, then on fund, open and close — monotonically", () => {
+    const w = world();
+    const v = createVault(w, { keeperId: "k", agentId: "a", leash: {} });
+    expect(v.updatedAt).toBe(1_000);
+
+    step(2_000);
+    fundVault(v, 1);
+    expect(v.updatedAt).toBe(2_000);
+
+    step(3_000);
+    const opened = openTrade(w, { vaultId: v.id, agentId: "a", size: 0.25, entryPrice: 100 });
+    expect(opened.ok).toBe(true);
+    expect(v.updatedAt).toBe(3_000); // the debit is a money mutation
+    if (opened.ok) expect(opened.trade.updatedAt).toBe(3_000);
+
+    step(4_000);
+    if (opened.ok) closeTrade(w, opened.trade.id, 40);
+    expect(v.updatedAt).toBe(4_000); // the credit is too
+    if (opened.ok) expect(opened.trade.updatedAt).toBe(4_000);
+  });
+
+  it("stamps on a leash change, a halt and a resume", () => {
+    const w = world();
+    const v = createVault(w, { keeperId: "k", agentId: "a", leash: {} });
+
+    step(2_000);
+    updateLeash(v, { perTrade: 0.5 });
+    expect(v.updatedAt).toBe(2_000);
+
+    step(3_000);
+    haltVault(v);
+    expect(v.updatedAt).toBe(3_000);
+
+    step(4_000);
+    resumeVault(v);
+    expect(v.updatedAt).toBe(4_000);
+  });
+
+  it("stamps a trade rejected by the leash", () => {
+    const w = world();
+    const v = createVault(w, { keeperId: "k", agentId: "a", leash: {} });
+    step(2_000);
+
+    // too large for the per-trade cap, so it never debits the vault
+    const rejected = openTrade(w, { vaultId: v.id, agentId: "a", size: 99, entryPrice: 100 });
+    expect(rejected.ok).toBe(false);
+    expect((w.trades as Array<{ updatedAt?: number }>)[0]!.updatedAt).toBe(2_000);
+    expect(v.updatedAt).toBe(1_000); // no money moved, so the vault is untouched
+  });
+
+  it("stamps a caller on register and on follow, but not on a repeat follow", () => {
+    const w = world() as Parameters<typeof registerCaller>[0];
+    step(2_000);
+    const c = registerCaller(w, "r1", "@r1");
+    expect(c.updatedAt).toBe(2_000);
+
+    step(3_000);
+    followCaller(w, c.id, "r2");
+    expect(c.updatedAt).toBe(3_000);
+
+    // already a follower: nothing changed, so nothing should claim recency
+    step(4_000);
+    followCaller(w, c.id, "r2");
+    expect(c.updatedAt).toBe(3_000);
+  });
+
+  it("does NOT stamp refreshCallerStats when no stat moved", () => {
+    const w = world() as Parameters<typeof registerCaller>[0];
+    step(2_000);
+    const c = registerCaller(w, "r1", "@r1");
+    step(5_000);
+
+    refreshCallerStats(w);
+
+    // this runs on a PUBLIC GET. Stamping unconditionally would let a stale
+    // instance claim recency just by recomputing.
+    expect(c.updatedAt).toBe(2_000);
+  });
+
+  it("stamps refreshCallerStats when a stat actually moves", () => {
+    // typed once here rather than cast per call: this test touches every array,
+    // and the file's `world()` helper only declares vaults + trades
+    const w = world() as unknown as Parameters<typeof createVault>[0]
+      & Parameters<typeof openTrade>[0]
+      & Parameters<typeof registerCaller>[0]
+      & Parameters<typeof refreshCallerStats>[0];
+    const v = createVault(w, { keeperId: "k", agentId: "a", leash: {} });
+    const c = registerCaller(w, "r1", "@r1");
+    fundVault(v, 1);
+    // 0.2, not 0.5: the default leash caps a trade at 0.25 and a rejected open
+    // never reaches closeTrade, so it would produce no ledger row to summarise
+    const opened = openTrade(w, { vaultId: v.id, agentId: "a", callerId: c.id, size: 0.2, entryPrice: 100 });
+    expect(opened.ok).toBe(true);
+    if (opened.ok) closeTrade(w, opened.trade.id, 40);
+    step(6_000);
+
+    refreshCallerStats(w);
+
+    expect(c.totalPnl).not.toBe(0);
+    expect(c.updatedAt).toBe(6_000);
   });
 });

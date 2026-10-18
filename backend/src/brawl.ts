@@ -158,6 +158,49 @@ export function createBrawlRouter(ctx: BrawlContext): express.Router {
   }
 
   /**
+   * Agent-only guard, the counterpart to `requireKeeper` above.
+   *
+   * A vault names two residents: `keeperId` owns the capital and `agentId` is
+   * the one authorised to trade it (shared/src/types.ts:442-443). OPENING is the
+   * agent's action — it debits `vault.balance`, which is the agent's own risk —
+   * so it requires `agentId`. CLOSING is the keeper's, because it credits the
+   * balance and pays out the keeper's share; `requireKeeper`'s comment already
+   * lists close among the keeper-only routes.
+   *
+   * Before this, both routes took any `vaultId` from the body: any authenticated
+   * resident could open against someone else's vault and close it at a move they
+   * chose, crediting `balance += size + keeperPaid` out of nothing.
+   */
+  function requireVaultAgent(vaultId: string, residentId: string): BrawlError | null {
+    const vault = getVault(world, vaultId);
+    if (!vault) return new BrawlError("vault not found", 404);
+    if (vault.agentId !== residentId) {
+      return new BrawlError("only the vault's agent may do this", 403);
+    }
+    return null;
+  }
+
+  /**
+   * `Number(x)` on a missing field yields NaN, and NaN walks straight through
+   * `Math.min`/`Math.max` in `settle`, so an absent `rawMovePct` makes
+   * `keeperPaid` NaN and then `vault.balance` NaN — a corrupted balance, which
+   * now persists. Same for `size` on open: `checkLeash` compares with `<=`/`>`,
+   * and every one of those is false for NaN, so a NaN size passes every cap.
+   *
+   * This is input validation, not a settlement source: there is none. Settlement
+   * is simulated (testnet.ts:62 — no contract, no signer), so `rawMovePct`
+   * remains client-supplied and is bounded only by the leash cap in `settle`.
+   * The worst a caller can do is settle their own trade at `tp` percent, which
+   * is what the leash says the maximum profit is. Replacing that with a real
+   * price needs a contract, and is out of scope here.
+   */
+  function requireFinite(body: Record<string, unknown>, field: string): BrawlError | null {
+    const n = Number(body[field]);
+    if (Number.isFinite(n)) return null;
+    return new BrawlError(`${field} must be a finite number`, 400);
+  }
+
+  /**
    * V7 (§7): the three keeper actions advance the quest ACTION axis as a side
    * effect — there is no quest endpoint, the doing IS the progress. This
    * mirrors exactly what the turn loop does for resident actions
@@ -272,8 +315,18 @@ export function createBrawlRouter(ctx: BrawlContext): express.Router {
     requireAgent,
     asyncH(async (req, res) => {
       const agent = (req as AgentReq).agent!;
+      const vaultId = String(req.body.vaultId);
+      // ownership BEFORE any mutation: an unauthenticated-from-the-vault's-point-
+      // of-view caller must not even get a rejected trade row recorded
+      for (const denied of [
+        requireFinite(req.body, "size"),
+        requireFinite(req.body, "entryPrice"),
+        requireVaultAgent(vaultId, agent.resident.id),
+      ]) {
+        if (denied) return fail(res, denied);
+      }
       const result = openTrade(world, {
-        vaultId: String(req.body.vaultId),
+        vaultId,
         agentId: agent.resident.id,
         callerId: typeof req.body.callerId === "string" ? req.body.callerId : undefined,
         size: Number(req.body.size),
@@ -299,6 +352,15 @@ export function createBrawlRouter(ctx: BrawlContext): express.Router {
     asyncH(async (req, res) => {
       const agent = (req as AgentReq).agent!;
       try {
+        // CLOSE is the keeper's action (see requireKeeper). The trade is read
+        // first because its vaultId is what the ownership check is against —
+        // it is not in the path, and trusting a body field here would let a
+        // caller point the check at a vault they do own.
+        const trade = (world.trades ?? []).find((t) => t.id === req.params.id);
+        if (!trade) throw new BrawlError("trade not found", 404);
+        const denied = requireFinite(req.body, "rawMovePct") ?? requireKeeper(trade.vaultId, agent.resident.id);
+        if (denied) return fail(res, denied);
+
         const result = closeTrade(world, req.params.id, Number(req.body.rawMovePct));
         refreshCallerStats(world);
         // V7 (§7) step 4: closing a trade IS the `record` action. The row on

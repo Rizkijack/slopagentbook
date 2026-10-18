@@ -32,6 +32,7 @@ const authA = () => ({ Authorization: `Bearer ${A.token}` });
 const authB = () => ({ Authorization: `Bearer ${B.token}` });
 
 let vaultId = "";
+let tradeId = "";
 
 describe("BRAWL auth", () => {
   it("agent A creates a vault it owns", async () => {
@@ -102,6 +103,83 @@ describe("BRAWL auth", () => {
       .set({ Authorization: "Bearer not-a-real-token" })
       .send({ amount: 1 });
     expect(res.status).toBe(401);
+  });
+
+  // Trade ownership is a SEPARATE guard from keeper ownership: `open` moves the
+  // authorised AGENT's money (`vault.agentId`), `close` settles it and is
+  // already documented as a keeper action in brawl.ts's requireKeeper comment.
+  // Without either, any authenticated resident could open against someone else's
+  // vault and close it at a move they chose, minting `balance += size + keeperPaid`.
+  it("agent B cannot open a trade against the keeper's vault", async () => {
+    const res = await request(app)
+      .post("/api/brawl/trades")
+      .set(authB())
+      .send({ vaultId, size: 0.1, entryPrice: 100 });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/agent/i);
+  });
+
+  it("agent A, the authorised agent, can open on its own vault", async () => {
+    const res = await request(app)
+      .post("/api/brawl/trades")
+      .set(authA())
+      .send({ vaultId, size: 0.1, entryPrice: 100 });
+
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    tradeId = res.body.trade.id;
+    expect(tradeId).toBeTruthy();
+  });
+
+  it("agent B cannot close a trade on the keeper's vault", async () => {
+    const res = await request(app)
+      .post(`/api/brawl/trades/${tradeId}/close`)
+      .set(authB())
+      .send({ rawMovePct: 100 }); // the maximum the leash allows
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/keeper/i);
+  });
+
+  it("agent A, the keeper, closes its own trade and the balance is credited", async () => {
+    const res = await request(app)
+      .post(`/api/brawl/trades/${tradeId}/close`)
+      .set(authA())
+      .send({ rawMovePct: 40 });
+
+    expect(res.status).toBe(200);
+    expect(res.body.trade.status).toBe("closed");
+    expect(res.body.entry.tradeId).toBe(tradeId);
+  });
+
+  it("refuses a non-finite rawMovePct instead of writing NaN into the balance", async () => {
+    // `settle` caps the move to [sl, tp], but NaN passes straight through
+    // Math.min/Math.max, so a missing rawMovePct would make `vault.balance`
+    // NaN — and now that money is persisted, that NaN would be written to the row.
+    const open = await request(app)
+      .post("/api/brawl/trades")
+      .set(authA())
+      .send({ vaultId, size: 0.1, entryPrice: 100 });
+    expect(open.status).toBe(200);
+
+    const res = await request(app)
+      .post(`/api/brawl/trades/${open.body.trade.id}/close`)
+      .set(authA())
+      .send({}); // no rawMovePct at all
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/rawMovePct/i);
+  });
+
+  it("refuses a non-finite size rather than debiting NaN from the balance", async () => {
+    const res = await request(app)
+      .post("/api/brawl/trades")
+      .set(authA())
+      .send({ vaultId, entryPrice: 100 }); // no size
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/size/i);
   });
 
   it("content routes stay public — no token, no capital at stake", async () => {

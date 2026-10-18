@@ -444,6 +444,17 @@ export interface Vault {
   leash: Leash;
   paused: boolean;    // halt state
   createdAt: number;
+  /**
+   * When this record last changed, stamped by vault.ts on every mutation.
+   *
+   * It exists ONLY so two instances merging the same snapshot can order two
+   * versions of one vault. Optional by design: a save written before this field
+   * existed must still boot, and a row without it merges with the writer's copy
+   * winning (see `newerRecord` in backend/src/pgstore.ts). Not a monotonic
+   * counter — `balance` is debited and credited, so only the last writer's view
+   * of the balance is meaningful, and ordering is exactly what this provides.
+   */
+  updatedAt?: number;
 }
 
 // === BRAWL: Trade ===
@@ -460,6 +471,8 @@ export interface Trade {
   reason?: string;    // reject reason dari leash
   openedAt: number;
   closedAt?: number;
+  /** See `Vault.updatedAt`. Merging falls back to closedAt ?? openedAt. */
+  updatedAt?: number;
 }
 
 // === BRAWL: Ledger Entry ===
@@ -482,6 +495,8 @@ export interface Caller {
   winRate: number;     // dari ledger
   totalPnl: number;    // dari ledger
   followers: string[]; // resident ids
+  /** See `Vault.updatedAt`. */
+  updatedAt?: number;
 }
 
 // === BRAWL: settlement chain — field optional BARU ===
