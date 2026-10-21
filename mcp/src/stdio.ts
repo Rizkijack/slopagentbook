@@ -6,6 +6,13 @@ import { McpDispatcher, type JsonRpcMessage, type JsonRpcResponse } from "./prot
 /**
  * MCP stdio entrypoint: newline-delimited JSON-RPC 2.0 on stdin/stdout.
  * stdout carries the protocol ONLY — no logging here, ever.
+ *
+ * No x402 gate here, deliberately: the payment layer lives at the HTTP
+ * transport boundary (http.ts) because only that transport can present a
+ * payment to a facilitator. A local stdio client is the operator's own
+ * machine, so the two priced tools (quest_create, quest_join) are served free
+ * here — which their descriptions now say out loud, so nobody mistakes a free
+ * local call for a paid one.
  */
 export function startStdio(client: SlopAgentbookClient = new SlopAgentbookClient()): void {
   const dispatcher = new McpDispatcher(client);

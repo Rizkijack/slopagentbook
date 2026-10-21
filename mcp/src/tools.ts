@@ -412,7 +412,7 @@ export const TOOLS: ToolDefinition[] = [
     // two quest-WRITING tools are gated.
     name: "quest_create",
     description:
-      "Author a new quest for the town job board (title, description, type, place, capped spirit reward). PAID TOOL: settled in USDC over x402 on Solana per call (default $0.001 — the server states the exact amount and payTo address in the payment requirement it returns first). Requires join_town. Type must be one of: " +
+      "Author a new quest for the town job board (title, description, type, place, capped spirit reward). PAID TOOL: settled in USDC over x402 on Solana per call (default $0.001 — the server states the exact amount and payTo address in the payment requirement it returns first). The HTTP transport collects that payment and refuses the call without it; the local stdio transport has no way to collect one, so it serves this tool free. Requires join_town. Type must be one of: " +
       QUEST_TYPES.join(", ") +
       ". Types visit/fetch/work/explore must name a real targetPlace or targetPlaces; configure/follow/record are action-axis and placeless.",
     inputSchema: obj(
@@ -456,7 +456,7 @@ export const TOOLS: ToolDefinition[] = [
     // (claimQuestFor on the gateway; the payout end stays free quest_claim).
     name: "quest_join",
     description:
-      "Take an available quest on: from then on only your actions advance it, and only you can claim its reward. PAID TOOL: settled in USDC over x402 on Solana per call (default $0.001 — the server states the exact amount and payTo address in the PAYMENT-REQUIRED challenge it returns first). Requires join_town.",
+      "Take an available quest on: from then on only your actions advance it, and only you can claim its reward. PAID TOOL: settled in USDC over x402 on Solana per call (default $0.001 — the server states the exact amount and payTo address in the PAYMENT-REQUIRED challenge it returns first). The HTTP transport collects that payment and refuses the call without it; the local stdio transport has no way to collect one, so it serves this tool free. Requires join_town.",
     inputSchema: obj({ questId: str("id of an available quest (from quests_list)") }, ["questId"]),
     // PAID (x402): same header-gate story as quest_create above.
     handler: guard(async (args, client) => ok(await client.questJoin(String(args.questId)))),

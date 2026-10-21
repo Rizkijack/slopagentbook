@@ -406,8 +406,27 @@ app.use(express.json({ limit: "64kb" }));
 // multi-instance deployment such as Vercel)
 const rateLimitFork = createRateLimiter(6, 60 * 60 * 1000);
 
+// A public route that MUTATES the town must be metered, exactly like fork is.
+// /api/quests/refresh used to be reachable by anyone, unlimited: one caller
+// could fill the board, force a quest generation and a full-row write per
+// request. /api/quests/:id/claim is unauthenticated by design (anyone may
+// claim a completed quest) but it still writes the row, so it needs a ceiling
+// too. Same shared-limiter caveat as fork: per-instance memory, so N x limit
+// behind a multi-instance deployment.
+const rateLimitQuestRefresh = createRateLimiter(10, 60 * 1000);
+const rateLimitQuestClaim = createRateLimiter(30, 60 * 1000);
+
 // SSE clients
 const clients = new Set<import("express").Response>();
+
+/**
+ * How many concurrent SSE clients one instance serves.
+ *
+ * Every stream holds a socket and a 25 s ping interval, so an unbounded set is
+ * an availability hole reachable without a credential. Read at request time so
+ * a test can set a low ceiling.
+ */
+const MAX_SSE_CLIENTS = () => Number(process.env.MAX_SSE_CLIENTS ?? 200);
 
 function broadcast(msg: unknown): void {
   const line = `data: ${JSON.stringify(msg)}\n\n`;
@@ -427,6 +446,10 @@ app.get("/api/snapshot", (_req, res) => {
 
 // GET /api/stream SSE
 app.get("/api/stream", (req, res) => {
+  if (clients.size >= MAX_SSE_CLIENTS()) {
+    res.status(503).json({ error: "too many stream clients" });
+    return;
+  }
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache, no-transform",
@@ -612,6 +635,10 @@ app.get("/api/quests", (_req, res) => {
 });
 
 app.post("/api/quests/:id/claim", async (req, res) => {
+  if (!rateLimitQuestClaim(clientIp(req))) {
+    res.status(429).json({ error: "rate limited, try again later" });
+    return;
+  }
   const id = req.params.id;
   // This route is unauthenticated — anyone may claim a completed quest — so the
   // claimant is resolved best-effort from the session cookie the chat board
@@ -632,7 +659,11 @@ app.post("/api/quests/:id/claim", async (req, res) => {
   res.json(result.quest);
 });
 
-app.post("/api/quests/refresh", (_req, res) => {
+app.post("/api/quests/refresh", (req, res) => {
+  if (!rateLimitQuestRefresh(clientIp(req))) {
+    res.status(429).json({ error: "rate limited, try again later" });
+    return;
+  }
   const before = world.quests.length;
   refreshExpiredQuests(world);
   // also generate one fresh if under 12 — the manual top-up on a board that

@@ -252,7 +252,11 @@ export function createBrawlRouter(ctx: BrawlContext): express.Router {
     requireAgent,
     asyncH(async (req, res) => {
       const agent = (req as AgentReq).agent!;
-      const denied = requireKeeper(req.params.id, agent.resident.id);
+      // `fundVault` rejects NaN (it is not `> 0`), but Infinity IS `> 0` and
+      // would make the balance Infinity — a balance that can never be drawn
+      // down again, and that now persists through the merge. The same finite
+      // guard the trade route uses.
+      const denied = requireFinite(req.body, "amount") ?? requireKeeper(req.params.id, agent.resident.id);
       if (denied) return fail(res, denied);
       const vault = getVault(world, req.params.id)!;
       try {
