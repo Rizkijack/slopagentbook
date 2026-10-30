@@ -316,22 +316,40 @@ export function applyBrainDefault(config: Record<string, unknown>): string[] {
 }
 
 /**
- * Fill a treasury address a save has never carried.
+ * Fill a treasury address a save has never carried, and retarget a town still
+ * carrying the value this default replaced.
  *
- * Different rule from `applyBrainDefault`, which matches an exact previous
- * value: this field never existed before now, so there is no old value to match
- * and the only signal available is absence. Absence is treated as "a save that
- * predates the field", never as "an operator blanked it on purpose" — an
- * operator who blanks it leaves the key present and empty, which this leaves
- * alone. A config that already carries a non-empty address is never touched, for
- * the same reason the brand reconciliation is not: a default must not rewrite a
- * real value.
+ * Two rules in one reconciler, each narrower than it looks:
+ *
+ *  - Absence fills. This field once did not exist at all, so absence is treated
+ *    as "a save that predates the field", never as "an operator blanked it on
+ *    purpose" — an operator who blanks it leaves the key present and empty,
+ *    which this leaves alone. A config that already carries a non-empty address
+ *    that is not the retired default is never touched, for the same reason the
+ *    brand reconciliation is not: a default must not rewrite a real value.
+ *  - The exact previous default is rewritten. When the default moved to a new
+ *    wallet, saves that still carried the old one would keep it forever under
+ *    the absence rule, so the old value joins the same pattern
+ *    `applyBrainDefault` uses: only a town still carrying that exact address is
+ *    touched; an operator-set address of any other shape is left alone.
  *
  * Returns the keys it changed so the caller can log and persist.
  */
+const PREVIOUS_TREASURY = "5wwSxR2Yttu3RieEEmKHmRq34EudDbMY42j9RLJfjMKs";
+
 export function applyTreasuryAddress(config: Record<string, unknown>): string[] {
   const changed: string[] = [];
   const current = config.treasuryAddress;
+  if (typeof current === "string" && current !== "" && current !== defaultConfig.treasuryAddress) {
+    // An address the save actually carries. Fill-with-default only applies when
+    // the save has nothing; a real value is retargeted only when it is the one
+    // this default replaced.
+    if (current === PREVIOUS_TREASURY && defaultConfig.treasuryAddress) {
+      config.treasuryAddress = defaultConfig.treasuryAddress;
+      changed.push("treasuryAddress");
+    }
+    return changed;
+  }
   const isAbsent = !("treasuryAddress" in config) || current === undefined || current === null;
   if (isAbsent && defaultConfig.treasuryAddress) {
     config.treasuryAddress = defaultConfig.treasuryAddress;

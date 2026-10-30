@@ -197,7 +197,7 @@ export const defaultConfig: TownConfig = {
    * the mint and stays empty; this one is a wallet, and a wallet can exist with
    * no token behind it.
    */
-  treasuryAddress: "5wwSxR2Yttu3RieEEmKHmRq34EudDbMY42j9RLJfjMKs",
+  treasuryAddress: "EnS8fknZdYHkJZtGN2HcS3vExJ3fyGqubNeg5Kpr5yBx",
   chainName: "Solana",
   network: "mainnet-beta",
   nativeSymbol: "SOL",

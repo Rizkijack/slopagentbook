@@ -12,7 +12,9 @@ import { applyTreasuryAddress } from "../src/server.js";
  * operator blanked it on purpose". The distinction is the whole test.
  */
 describe("applyTreasuryAddress", () => {
-  const REAL = "5wwSxR2Yttu3RieEEmKHmRq34EudDbMY42j9RLJfjMKs";
+  // The current default lives in shared/src/config.ts; this must track it so a
+  // silent drift in the default cannot sneak past the address checks below.
+  const REAL = "EnS8fknZdYHkJZtGN2HcS3vExJ3fyGqubNeg5Kpr5yBx";
 
   it("fills a save that has never carried the field", () => {
     // the live production save: written before the field existed
@@ -35,6 +37,24 @@ describe("applyTreasuryAddress", () => {
     expect(REAL).toMatch(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/);
     expect(REAL.length).toBeGreaterThanOrEqual(32);
     expect(REAL.length).toBeLessThanOrEqual(44);
+  });
+
+  it("retargets a save still carrying the exact retired default", () => {
+    // The default moved to a new wallet. Absence cannot help a save that has
+    // the old address in it, so the old value — and only that value — is
+    // rewritten, the same rule applyBrainDefault uses for the brain field.
+    const old = "5wwSxR2Yttu3RieEEmKHmRq34EudDbMY42j9RLJfjMKs";
+    const config = { ...defaultConfig, treasuryAddress: old };
+
+    expect(applyTreasuryAddress(config)).toEqual(["treasuryAddress"]);
+    expect(config.treasuryAddress).toBe(defaultConfig.treasuryAddress);
+    expect(config.treasuryAddress).not.toBe(old);
+  });
+
+  it("is idempotent about the retarget too", () => {
+    const config = { ...defaultConfig, treasuryAddress: "5wwSxR2Yttu3RieEEmKHmRq34EudDbMY42j9RLJfjMKs" };
+    expect(applyTreasuryAddress(config)).toEqual(["treasuryAddress"]);
+    expect(applyTreasuryAddress(config)).toEqual([]);
   });
 
   it("leaves a config that already names an address alone", () => {

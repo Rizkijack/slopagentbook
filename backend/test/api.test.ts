@@ -58,7 +58,7 @@ describe("API", () => {
     // deployed, so `tokenAddress` is empty and `tokenDeployed` is false — the
     // payload separates the two instead of answering one with the other's
     // field, which is how a real address used to be unreachable.
-    expect(res.body.treasuryAddress).toBe("5wwSxR2Yttu3RieEEmKHmRq34EudDbMY42j9RLJfjMKs");
+    expect(res.body.treasuryAddress).toBe(defaultConfig.treasuryAddress);
     expect(res.body.address).toBe(res.body.treasuryAddress);
     expect(res.body.tokenAddress).toBe("");
     expect(res.body.tokenDeployed).toBe(false);
