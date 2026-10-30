@@ -16,7 +16,7 @@ import { createScheduler } from "./scheduler.js";
 import { runTurn } from "./turn.js";
 import { createGatewayRouter } from "./gateway.js";
 import { createBrawlRouter } from "./brawl.js";
-import { ensureHouseResidents } from "./houseagents.js";
+import { ensureHouseResidents, HOUSE_AGENTS } from "./houseagents.js";
 import { retireResolved, tickTournament, type TournamentEvent } from "./tournament.js";
 // shared helpers — single definitions live in agents.ts (dedup with gateway.ts)
 import { CONTROL_CHARS, clientIp, createRateLimiter, pickNextSimId, parseProfileUrl, parseProfileLinks, verifyToken, AgentError } from "./agents.js";
@@ -372,33 +372,68 @@ if (treasuried.length > 0) {
   saveDebounced(DATA_PATH, world, 0);
 }
 
-// A row written before the merge knew about capacity can hold more residents
-// than `maxHerd`, with duplicate names — two instances each admitted the same
-// one while unaware of the other. Normalizing HERE is what makes it heal: boot
-// is the only point every instance passes through, and `POST /api/agent/join`
-// reads the in-memory herd, so an unnormalized load makes the town permanently
-// refuse new residents without ever writing (and therefore without ever
-// merging) anything.
-if (world.herd.length !== normalizeHerd(world).length) {
-  const before = world.herd.length;
-  world.herd = normalizeHerd(world) as unknown as typeof world.herd;
-  console.log(`[boot] herd normalized ${before} -> ${world.herd.length} (maxHerd ${world.config.maxHerd})`);
-  saveDebounced(DATA_PATH, world, 0);
+// Capacity is operator-controlled and stays at the default (`maxHerd` 200).
+// What the operator asked for on 2026-10-30 is a reduction of the herd the
+// row currently holds (61 probe-era residents) down to 20 — a one-shot change
+// of the town's contents, not of the cap, so new joins still have pasture.
+//
+// One-shot means a marker, not an exact-previous value: there is no old value
+// to match on, the herd is dynamic state. Without a stamp the trim would fire
+// on every boot and silently shave any town that later legitimately grows past
+// 20. `herdReduced20261030` is stamped into config the first time this runs;
+// boots after that skip it entirely.
+const HERD_REDUCTION_KEY = "herdReduced20261030";
+const HERD_REDUCTION_TARGET = 20;
+
+// The oldest-first survivor rule the merge uses would sweep the three house
+// bots out first (the bots were born days before the probe residents), and a
+// trimmed-without-bots town cannot take them back — `ensureHouseResidents`
+// honours the cap and refuses, leaving the arena without its house entrants,
+// which is the default degradation houseagents.ts names. So the reduction
+// pins the bots into the surviving pool and fills the rest with the NEWEST
+// non-bots, the mirror image of capHerd's drop order.
+export function trimToTargetKeepingBots(world: TownSnapshot, target: number): boolean {
+  if (world.herd.length <= target) return false;
+  // string[] deliberately: `includes(h.id)` must accept any resident id, and
+  // HouseAgentId's literal union would make `includes` a type error.
+  const HOUSE_IDS: string[] = HOUSE_AGENTS.map((p) => p.id);
+  const bots = world.herd.filter((h) => HOUSE_IDS.includes(h.id));
+  const nonBots = world.herd.filter((h) => !HOUSE_IDS.includes(h.id));
+  const botSlots = Math.min(bots.length, target);
+  const room = Math.max(0, target - botSlots);
+  // newest non-bots survive (born desc, herd order breaks ties)
+  const survivors = nonBots
+    .map((h, i) => ({ h, i }))
+    .sort((a, b) => (b.h.born ?? 0) - (a.h.born ?? 0) || b.i - a.i)
+    .slice(0, room)
+    .map((x) => x.h);
+  world.herd = [...survivors, ...bots.slice(0, botSlots)] as unknown as typeof world.herd;
+  return true;
 }
 
-// Capacity is operator-controlled, not brand identity, so a town saved under an
-// older cap is raised to the current default at boot. Without this the running
-// town would keep refusing joins at 64 forever, since the save's own config
-// wins over defaultConfig.
-if (
-  typeof world.config.maxHerd === "number" &&
-  world.config.maxHerd < defaultConfig.maxHerd
-) {
-  const before = world.config.maxHerd;
-  world.config.maxHerd = defaultConfig.maxHerd;
-  console.log(`[boot] maxHerd raised ${before} -> ${world.config.maxHerd}`);
+export function reduceActiveHerd(world: TownSnapshot): boolean {
+  const cfg = world.config as unknown as Record<string, unknown>;
+  if (cfg[HERD_REDUCTION_KEY] === true) return false;
+  cfg[HERD_REDUCTION_KEY] = true;
+  const before = world.herd.length;
+  trimToTargetKeepingBots(world, HERD_REDUCTION_TARGET);
+  // Name duplicates still normalize in the surviving pool; at/below the
+  // reduction's own target the born-based cap rule inside normalize is inert,
+  // so it cannot throw the pinned bots out.
+  const normalized = normalizeHerd(world);
+  if (normalized.length !== world.herd.length) {
+    world.herd = normalized as unknown as typeof world.herd;
+  }
+  console.log(
+    before !== world.herd.length
+      ? `[boot] active herd reduced ${before} -> ${world.herd.length} (target ${HERD_REDUCTION_TARGET}, house bots pinned; herd cap stays ${world.config.maxHerd})`
+      : `[boot] herd already at/below the active reduction target ${HERD_REDUCTION_TARGET} — reduction marked done (cap stays ${world.config.maxHerd})`,
+  );
   saveDebounced(DATA_PATH, world, 0);
+  return true;
 }
+
+reduceActiveHerd(world);
 
 // Hermes Trials (08 §8): the three house bots, seeded here rather than in
 // `createInitialWorld` because `houseagents.ts` imports `createAgentResident`
