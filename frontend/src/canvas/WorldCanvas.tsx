@@ -261,6 +261,7 @@ export function WorldCanvas({
 
     let raf = 0;
     let last = performance.now();
+    let observerRef: IntersectionObserver | null = null;
     // ?fps=1 badge state — declared here so the frame loop can update it
     const showFps = new URLSearchParams(window.location.search).get("fps") === "1";
     let fpsFrames = 0, fpsAcc = 0, fpsWorst = 0, fpsWinStart = last, fpsPrev = last;
@@ -479,10 +480,39 @@ export function WorldCanvas({
       }
       raf = requestAnimationFrame(frame);
     }
-    raf = requestAnimationFrame(frame);
+    // The loop runs only while the canvas is actually on screen. A hidden tab
+    // stops rAF by itself, but a canvas the user scrolled past does not — and
+    // draw() repaints the whole world every frame, so a parked page kept
+    // burning a CPU core and the GPU for nothing.
+    let running = false;
+    const startLoop = () => {
+      if (running) return;
+      running = true;
+      last = performance.now();
+      raf = requestAnimationFrame(frame);
+    };
+    const stopLoop = () => {
+      if (!running) return;
+      running = false;
+      cancelAnimationFrame(raf);
+    };
+    // jsdom has no IntersectionObserver (and old esmodule shims may not either):
+    // without it the loop simply never stops, exactly like before this observer.
+    if (typeof IntersectionObserver === "undefined") {
+      startLoop();
+    } else {
+      const io = new IntersectionObserver(
+        (entries) => (entries.some((e) => e.isIntersecting) ? startLoop() : stopLoop()),
+      );
+      io.observe(canvas);
+      // Root fallback if the observer itself could not be wired up.
+      startLoop();
+      observerRef = io;
+    }
 
     return () => {
-      cancelAnimationFrame(raf);
+      stopLoop();
+      observerRef?.disconnect();
       ro.disconnect();
       xf.onFollow = null;
       window.removeEventListener("resize", applySize);

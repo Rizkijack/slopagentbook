@@ -733,7 +733,8 @@ export interface TournamentEvent {
 export function tickTournament(
   world: TownSnapshot,
   now: number,
-  spatThisTick: readonly string[] = []
+  spatThisTick: readonly string[] = [],
+  sample = true,
 ): TournamentEvent | null {
   const contest = liveContest(world);
   if (!contest) {
@@ -779,6 +780,13 @@ export function tickTournament(
   if (contest.state !== "live") return null;
 
   if (now >= contest.endsAt) return resolveContest(world, contest, now);
+
+  // A tick with no samplable turn still advanced the lifecycle above (the
+  // announce/skip/resolve flips and the endsAt resolve) — that is why
+  // `sample=false` reaches this line. Taking a presence sample without a turn
+  // would be measuring an instant instead of a turn, so out here: the next
+  // real turn samples again.
+  if (!sample) return null;
 
   // One row per entrant per turn — exactly what `scoreContest` folds over.
   // `wasSpit` is `endure`'s only input besides spirit, and it comes from the

@@ -141,8 +141,9 @@ function at(zoom: number, cx?: number, cy?: number): Xf {
   return xf;
 }
 
-function measure(label: string, zoom: number): void {
+function measure(label: string, zoom: number, clock = 0.3): void {
   const timed = at(zoom);
+  timed.clock = clock;
   const tctx = plainCtx();
   for (let i = 0; i < 20; i++) {
     timed.t = i / 60;
@@ -158,6 +159,7 @@ function measure(label: string, zoom: number): void {
 
   const probe = countingOps();
   const counted = at(zoom);
+  counted.clock = clock;
   counted.draw(probe.ctx, VIEW_W, VIEW_H);
 
   console.log(
@@ -180,6 +182,20 @@ describe("draw frame cost", () => {
     measure("default", 1);
     measure("street level", 2);
     measure("max zoom", MAX_ZOOM);
+    console.log("");
+  });
+
+  it("measures the night lamp pass separately", () => {
+    // GLOW_MIN_ZOOM = 6/34 ≈ 0.176: at that zoom and above, night frames run
+    // the lamp pass over every LAMP_GLOWS entry in view — measured at 2,404
+    // pools at the whole-town zoom. This is the frame that used to be the
+    // heaviest thing the engine does: one fresh radial gradient + arc fill per
+    // lamp. clock 0.82 is full night (nightIntensity() === 1).
+    console.log("");
+    measure("night whole town", MIN_ZOOM * 4, 0.82);
+    measure("night mid", 0.5, 0.82);
+    measure("night default", 1, 0.82);
+    measure("night street", 2, 0.82);
     console.log("");
   });
 

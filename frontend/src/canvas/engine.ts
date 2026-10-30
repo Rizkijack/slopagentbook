@@ -316,6 +316,14 @@ export class Xf {
    *  once per theme instead of once per frame (draw() ran it 60x/sec). */
   private groundCols = { theme: "", field: "#cfe8c0", hill: "#b8d8a8" };
 
+  /**
+   * One pre-rendered lamp-glow sprite, built on first night frame. Every lamp
+   * draws it with globalAlpha instead of building its own radial gradient —
+   * 2,404 gradient objects a frame was the most expensive pass in the night
+   * whole-town view.
+   */
+  private glowSprite: HTMLCanvasElement | null = null;
+
   private groundColors(themeAttr: string | null, isDark: boolean): { field: string; hill: string } {
     const theme = themeAttr ?? "light";
     const c = this.groundCols;
@@ -1552,19 +1560,45 @@ export class Xf {
           ctx.fill();
         }
         // street lamps
+        // Each pool used to be a fresh radial gradient plus an arc fill — the
+        // most expensive thing in the frame, 2,404 gradient objects a frame at
+        // the whole-town zoom. The gradient never differs between lamps: only
+        // its alpha does, and that lives on globalAlpha. One pre-rendered
+        // sprite, one drawImage per lamp instead.
+        if (!this.glowSprite) {
+          const s = document.createElement("canvas");
+          s.width = 64;
+          s.height = 64;
+          const g = s.getContext("2d");
+          if (g) {
+            const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+            grad.addColorStop(0, "rgba(255, 224, 140, 1)");
+            grad.addColorStop(1, "rgba(255, 224, 140, 0)");
+            g.fillStyle = grad;
+            g.fillRect(0, 0, 64, 64);
+            this.glowSprite = s;
+          }
+        }
+        const sprite = this.glowSprite;
+        ctx.globalAlpha = 0.42 * night;
         for (const g of LAMP_GLOWS) {
           if (g.x < viewLeft || g.x > viewRight || g.y < viewTop || g.y > viewBottom) continue;
           const sx = (g.x - cam.x) * cam.zoom + viewportW / 2;
           const sy = (g.y - cam.y) * cam.zoom + viewportH / 2;
           const r = 34 * cam.zoom;
-          const grad = ctx.createRadialGradient(sx, sy, 0, sx, sy, r);
-          grad.addColorStop(0, `rgba(255, 224, 140, ${0.42 * night})`);
-          grad.addColorStop(1, "rgba(255, 224, 140, 0)");
-          ctx.fillStyle = grad;
-          ctx.beginPath();
-          ctx.arc(sx, sy, r, 0, Math.PI * 2);
-          ctx.fill();
+          if (sprite) {
+            ctx.drawImage(sprite, sx - r, sy - r, r * 2, r * 2);
+          } else {
+            const grad = ctx.createRadialGradient(sx, sy, 0, sx, sy, r);
+            grad.addColorStop(0, `rgba(255, 224, 140, 1)`);
+            grad.addColorStop(1, `rgba(255, 224, 140, 0)`);
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.arc(sx, sy, r, 0, Math.PI * 2);
+            ctx.fill();
+          }
         }
+        ctx.globalAlpha = 1;
         ctx.globalCompositeOperation = "source-over";
       }
     }

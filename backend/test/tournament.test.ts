@@ -323,6 +323,27 @@ describe("lifecycle", () => {
     expect(c.result!.standings.length).toBeGreaterThanOrEqual(2);
   });
 
+  it("still advances the lifecycle on a tick with no sim order behind it", () => {
+    // The scheduler used to early-return before tickTournament when
+    // pickNextSimId found nobody (a town whose residents are all externally
+    // driven) or runTurn produced no order — so an announced contest sat at
+    // "starts in 0s" on the HUD for as long as the quiet patch lasted. The fix
+    // passes sample=false for those ticks: lifecycle advances, sampling does
+    // not happen. samples must stay EMPTY across a whole no-order contest.
+    const ids = addAgents(2);
+    const c = announceContest(world, T0)!;
+    for (const id of ids) registerForContest(world, id, T0);
+    expect(tickTournament(world, c.startsAt, [], false)?.reason).toBe("live");
+    for (let t = c.startsAt + 1000; t < c.endsAt; t += 1000) {
+      expect(tickTournament(world, t, [], false)).toBeNull();
+    }
+    const done = tickTournament(world, c.endsAt + 1, [], false)!;
+    expect(done.reason).toBe("resolved");
+    expect(c.state).toBe("resolved");
+    expect(c.result).toBeDefined();
+    expect(c.samples.length, "a contest that ran without a single sim turn must not accrue samples").toBe(0);
+  });
+
   it("samples once per entrant per turn, whatever happens in the world", () => {
     const ids = addAgents(2);
     const c = announceContest(world, T0)!;

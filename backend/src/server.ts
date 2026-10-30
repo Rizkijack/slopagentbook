@@ -734,80 +734,79 @@ let turnCount = 0;
 function startScheduler(): void {
   if (turnTimer) clearInterval(turnTimer);
   turnTimer = setInterval(async () => {
+    const now = Date.now();
     // pick the next resident eligible for sim control: skip external agents that
     // are actively driven by their gateway (AFK externals still get sim turns).
     // pickNextSimId (agents.ts) owns that skip logic and is unit-tested there.
-    const id = pickNextSimId(world, scheduler, Date.now());
-    if (!id) return;
-    const result = await runTurn(world, id, brain);
-    if (!result || !result.order) return;
-    turnCount++;
-    broadcast(result.order);
-    if (result.spit) broadcast(result.spit);
-    if (result.post && Date.now() - result.post.t < 3000) {
-      broadcast({ type: "post", post: result.post });
-      // Also push bubble via post SSE will trigger frontend; order already moves agent
-    } else if (world.feed.length > 0) {
-      const latest = world.feed[0]!;
-      if (Date.now() - latest.t < 2500 && latest.id === result.post?.id) {
-        // already broadcast
-      } else if (Date.now() - latest.t < 2500) {
-        broadcast({ type: "post", post: latest });
+    const id = pickNextSimId(world, scheduler, now);
+    const result = id ? await runTurn(world, id, brain) : null;
+    const drove = Boolean(result?.order);
+    const order = result?.order;
+    if (order) {
+      turnCount++;
+      broadcast(order);
+      if (result?.spit) broadcast(result.spit);
+      if (result!.post && Date.now() - result!.post.t < 3000) {
+        broadcast({ type: "post", post: result!.post });
+        // Also push bubble via post SSE will trigger frontend; order already moves agent
+      } else if (world.feed.length > 0) {
+        const latest = world.feed[0]!;
+        if (Date.now() - latest.t < 2500 && latest.id === result!.post?.id) {
+          // already broadcast
+        } else if (Date.now() - latest.t < 2500) {
+          broadcast({ type: "post", post: latest });
+        }
+      }
+
+      // Weather events: 2% per turn (~one per ~50 turns), or ~30 per day
+      if (Math.random() < 0.02) {
+        const ev = generateWeatherEvent();
+        world.events.push(ev);
+        if (world.events.length > 120) world.events.shift();
+        broadcast({ type: "event", event: ev });
+      }
+
+      // Quest progress — every move counts for town
+      const updatedQuests = updateQuestProgress(world, { act: order.act, place: order.place, agentId: order.id, postKind: result!.post?.kind });
+      for (const q of updatedQuests) {
+        broadcast({ type: "quest", quest: q });
+        // also push quest complete as town event
+        const ev = { t: Date.now(), kind: "quest", text: `Quest completed: ${q.title}` };
+        world.events.push(ev);
+        if (world.events.length > 120) world.events.shift();
+        broadcast({ type: "event", event: ev });
+      }
+      // periodic quest housekeeping
+      if (turnCount % 30 === 0) {
+        const beforeLen = world.quests.length;
+        refreshExpiredQuests(world);
+        if (world.quests.length !== beforeLen) {
+          for (const q of world.quests) broadcast({ type: "quest", quest: q });
+        }
+      }
+
+      // Daily Spit edition: every 60 turns (~108s at 1.8s tick) ~ 8-9 editions per dayLength 900s if tick 1.8s: 500 turns per day, but we publish every 60 for demo
+      // Also publish when day wraps for realism
+      if (turnCount % 60 === 0) {
+        const edition = generateEdition(world);
+        world.editions.unshift(edition);
+        if (world.editions.length > 20) world.editions.length = 20;
+        broadcast({ type: "edition", edition });
       }
     }
 
-    // Weather events: 2% per turn (~one per ~50 turns), or ~30 per day
-    if (Math.random() < 0.02) {
-      const ev = generateWeatherEvent();
-      world.events.push(ev);
-      if (world.events.length > 120) world.events.shift();
-      broadcast({ type: "event", event: ev });
-    }
-
-    // Quest progress — every move counts for town
-    const updatedQuests = updateQuestProgress(world, { act: result.order.act, place: result.order.place, agentId: result.order.id, postKind: result.post?.kind });
-    for (const q of updatedQuests) {
-      broadcast({ type: "quest", quest: q });
-      // also push quest complete as town event
-      const ev = { t: Date.now(), kind: "quest", text: `Quest completed: ${q.title}` };
-      world.events.push(ev);
-      if (world.events.length > 120) world.events.shift();
-      broadcast({ type: "event", event: ev });
-    }
-    // periodic quest housekeeping
-    if (turnCount % 30 === 0) {
-      const beforeLen = world.quests.length;
-      refreshExpiredQuests(world);
-      if (world.quests.length !== beforeLen) {
-        for (const q of world.quests) broadcast({ type: "quest", quest: q });
-      }
-    }
-
-    // Daily Spit edition: every 60 turns (~108s at 1.8s tick) ~ 8-9 editions per dayLength 900s if tick 1.8s: 500 turns per day, but we publish every 60 for demo
-    // Also publish when day wraps for realism
-    if (turnCount % 60 === 0) {
-      const edition = generateEdition(world);
-      world.editions.unshift(edition);
-      if (world.editions.length > 20) world.editions.length = 20;
-      broadcast({ type: "edition", edition });
-    }
-
-    // Hermes Trials (08 §4.1): one sampler per turn, the *only* integration
-    // point between the sim and contest resolution.
-    //
-    // It sits here rather than in its own interval because a contest is scored
-    // over the turns that actually happened — sampling on a clock the sim does
-    // not share would measure the scheduler instead of the town. It is reached
-    // only when a resident was driven and produced an order, which is safe for
-    // `endure` because spits can only originate inside a turn, so a skipped
-    // tick cannot swallow one. Entrants all scale together, so an uneven number
-    // of samples cannot distort the ranking either.
-    //
-    // The three house bots are what stops `pickNextSimId` returning null on a
-    // quiet town, which would otherwise pause sampling entirely.
-    const tournament = tickTournament(world, Date.now(), result.spit ? [result.spit.to] : []);
+    // Hermes Trials (08 §4.1): one scheduler step per tick. The lifecycle
+    // (announce → live/skip → resolve → retire) must advance on EVERY tick, not
+    // only on a turn that produced an order: on a quiet town — everyone
+    // externally driven, or runTurn returning no order — the old two early
+    // returns above left an announced contest sitting at "starts in 0s" on the
+    // HUD indefinitely (seen in a live recording: the banner never flipped to
+    // LIVE for the whole video). Sampling stays tied to real turns: `drove`
+    // (spits can only originate inside a turn), so a skipped tick cannot
+    // swallow one, and no sample is taken from an instant the sim did not walk.
+    const tournament = tickTournament(world, now, result?.spit ? [result.spit.to] : [], drove);
     if (tournament) broadcast(tournament);
-    for (const dropped of retireResolved(world, Date.now())) {
+    for (const dropped of retireResolved(world, now)) {
       const retired: TournamentEvent = { type: "contest", reason: "retired", contestId: dropped };
       broadcast(retired);
     }
