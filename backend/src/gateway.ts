@@ -26,7 +26,7 @@ import { postToBoard, getBoardsForWorld, getThreads } from "./bbs.js";
 import { clearSessionCookie, serializeSessionCookie, sessionCookieFrom } from "./session.js";
 import { dayClock } from "./needs.js";
 import { LOCATION_BY_ID } from "./locations.js";
-import { claimQuest, claimQuestFor, updateQuestProgress } from "./quests.js";
+import { claimQuest, claimQuestFor, updateQuestProgress, questRewardInfo } from "./quests.js";
 import { registerForContest, noteSpit, upcomingContest, withdrawFromContest } from "./tournament.js";
 import { saveAtomically, saveDebounced, refreshFromStore } from "./persist.js";
 import { planRemoval, applyRemoval } from "./pgstore.js";
@@ -821,7 +821,7 @@ export function createGatewayRouter(ctx: GatewayContext): express.Router {
       } catch (e) {
         console.error("save failed", e);
       }
-      res.json(result.quest);
+      res.json({ ...result.quest, rewardToken: questRewardInfo(world.config) });
     })
   );
 
@@ -851,7 +851,7 @@ export function createGatewayRouter(ctx: GatewayContext): express.Router {
       } catch (e) {
         console.error("save failed", e);
       }
-      res.json({ ok: true, quest: result.quest });
+      res.json({ ok: true, quest: result.quest, rewardToken: questRewardInfo(world.config) });
     })
   );
 

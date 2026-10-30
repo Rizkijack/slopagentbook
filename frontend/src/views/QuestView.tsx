@@ -134,6 +134,9 @@ function QuestCard({ q, onClaim, claiming, workerName }: { q: Quest; onClaim: (i
           }}
         >
           reward: {q.reward.text}
+          {q.rewardToken && (
+            <>{" · "}token reward: {q.rewardToken.token.deployed ? `paid from treasury ${q.rewardToken.token.from}` : `paid from treasury ${q.rewardToken.token.from} once the token deploys`}</>
+          )}
         </div>
       </div>
 

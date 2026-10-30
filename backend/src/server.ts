@@ -7,7 +7,7 @@ import { saveAtomically, saveDebounced, flushDebounced } from "./persist.js";
 import { normalizeHerd } from "./pgstore.js";
 import { createInitialWorld, makeResidentFromFork, generateEdition, generateWeatherEvent } from "./world.js";
 import { loadWithRecovery } from "./persist.js";
-import { updateQuestProgress, claimQuest, refreshExpiredQuests, generateQuest, createInitialQuests } from "./quests.js";
+import { updateQuestProgress, claimQuest, refreshExpiredQuests, generateQuest, createInitialQuests, questRewardInfo } from "./quests.js";
 import { LOCATIONS, LOCATION_BY_ID } from "./locations.js";
 import { spend } from "./spend.js";
 import { createBrain } from "./brain.js";
@@ -694,7 +694,12 @@ app.get("/api/status", (_req, res) => {
 app.get("/api/quests", (_req, res) => {
   // refresh expired before returning
   refreshExpiredQuests(world);
-  res.json(world.quests);
+  // Each quest carries the claim contract: what pays now (spirits) and the
+  // treasury-funded token side that activates when a mint is deployed. Pure
+  // additive metadata on top of the board — the UI reads it, saves never write
+  // it back into a quest.
+  const rewardToken = questRewardInfo(world.config);
+  res.json(world.quests.map((q) => ({ ...q, rewardToken })));
 });
 
 app.post("/api/quests/:id/claim", async (req, res) => {
@@ -719,7 +724,7 @@ app.post("/api/quests/:id/claim", async (req, res) => {
   broadcast({ type: "herd", herd: world.herd });
   // persist
   try { await saveAtomically(DATA_PATH, world); } catch {}
-  res.json(result.quest);
+  res.json({ ...result.quest, rewardToken: questRewardInfo(world.config) });
 });
 
 app.post("/api/quests/refresh", (req, res) => {

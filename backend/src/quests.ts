@@ -1,10 +1,26 @@
-import type { TownSnapshot, Quest, QuestType, QuestActionType } from "@slopagentbook/shared";
+import type { TownSnapshot, Quest, QuestType, QuestActionType, QuestRewardInfo } from "@slopagentbook/shared";
 import { QUEST_ACTIONS } from "@slopagentbook/shared";
 import { LOCATIONS } from "./locations.js";
 
 type Template = Omit<Quest, "id" | "progress" | "status" | "createdAt" | "expiresAt" | "giver" | "giverName" | "completedAt"> & { giver?: string };
 
 export type QuestTemplate = Template;
+
+/**
+ * The claim contract every quest response carries: what is paid now (spirits)
+ * and what will be paid from where once a mint exists — the treasury wallet on
+ * the coin page. Pure function of config, so no claim ever rewrites a quest.
+ */
+export function questRewardInfo(config: TownSnapshot["config"]): QuestRewardInfo {
+  return {
+    spirits: true,
+    token: {
+      deployed: config.tokenDeployed === true,
+      mint: config.tokenAddress || null,
+      from: config.treasuryAddress || null,
+    },
+  };
+}
 
 const TEMPLATES: Template[] = [
   {
@@ -565,8 +581,31 @@ function atPlace(q: Quest, place: string): boolean {
   return true;
 }
 
+/**
+ * Quests are worker-pool property of REGISTERED agents (operator decision,
+ * 2026-10-30): a resident driven only by the sim — the house bots first —
+ * cannot take on, activate, advance, or finish a quest. The gate is the agent
+ * registry: only a resident an agent record points at is a worker. Every
+ * progress event passes this one gate, whichever route produced it.
+ *
+ * A world with no `agents` key at all is not gated: tests build bare towns,
+ * and a save written before the registry existed has no worker pool to check
+ * against — progression then behaves exactly as it did before this gate.
+ * Production towns carry the registry (`world.agents ??= []` on first join
+ * seeds it), so the gate is live wherever it matters.
+ */
+export function isRegisteredWorker(world: TownSnapshot, residentId: string): boolean {
+  const agents = (world as { agents?: Array<{ residentId?: string }> }).agents;
+  if (!Array.isArray(agents)) return true; // legacy shape, see comment above
+  return agents.some((a) => a?.residentId === residentId);
+}
+
 export function updateQuestProgress(world: TownSnapshot, evt: { act: string; place: string; agentId: string; postKind?: string }): Quest[] {
   const updated: Quest[] = [];
+  // The registered-worker gate: an unregistered resident (house bots, forked
+  // town bodies on sim turns) arrives here only from the sim loop, and none of
+  // their actions may touch the board.
+  if (!isRegisteredWorker(world, evt.agentId)) return updated;
   for (const q of world.quests) {
     if (q.status !== "active" && q.status !== "available") continue;
     // A quest a worker has taken on (claimQuestFor) advances for that worker and
@@ -676,6 +715,11 @@ export function updateQuestProgress(world: TownSnapshot, evt: { act: string; pla
  * quest's life: taken on here, paid out there.
  */
 export function claimQuestFor(world: TownSnapshot, questId: string, workerId: string): { ok: boolean; quest?: Quest; error?: string } {
+  // Registered agents only: a resident the sim drives alone — the house bots —
+  // never takes a quest on, even if some caller handed their id over.
+  if (!isRegisteredWorker(world, workerId)) {
+    return { ok: false, error: "quests are for registered agents only" };
+  }
   const q = world.quests.find((x) => x.id === questId);
   if (!q) return { ok: false, error: "quest not found" };
   if (q.status !== "available") return { ok: false, error: "quest not available" };
@@ -706,6 +750,11 @@ export function claimQuestFor(world: TownSnapshot, questId: string, workerId: st
  * who *posted* the job, so the leaderboard had nothing to rank on.
  */
 export function claimQuest(world: TownSnapshot, questId: string, claimedBy?: string): { ok: boolean; quest?: Quest; error?: string } {
+  // Same registered-worker rule at payout: a claim attributed to a resident the
+  // registry does not know is refused rather than paid.
+  if (claimedBy && !isRegisteredWorker(world, claimedBy)) {
+    return { ok: false, error: "quests are for registered agents only" };
+  }
   const q = world.quests.find((x) => x.id === questId);
   if (!q) return { ok: false, error: "quest not found" };
   if (q.status !== "completed") return { ok: false, error: "quest not completed yet" };

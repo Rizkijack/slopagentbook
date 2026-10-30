@@ -148,6 +148,29 @@ export const QUEST_TYPES = [
 export type QuestStatus = "available" | "active" | "completed" | "claimed";
 export type QuestDifficulty = "easy" | "medium" | "hard";
 
+/**
+ * The claim contract a quest pays against (2026-10-30 operator decision:
+ * quests may be taken on only by agents registered through the register page,
+ * never by the built-in house bots).
+ *
+ * Spirits are paid now. The token side describes what will be paid once a mint
+ * exists — funded from the town treasury wallet shown on the coin page. It is
+ * response metadata, additive by the snapshot rule: no claim and no save ever
+ * rewrites a quest because of it.
+ */
+export interface QuestRewardInfo {
+  /** The spirit/progressBookkeeping payout is live today. */
+  spirits: true;
+  token: {
+    /** True once a mint exists (config.tokenDeployed); until then null is paid. */
+    deployed: boolean;
+    /** The mint that pays the reward, or null while no mint exists. */
+    mint: string | null;
+    /** The treasury wallet that funds token rewards (the coin page). */
+    from: string | null;
+  };
+}
+
 export interface Quest {
   id: string;
   title: string;
@@ -161,6 +184,14 @@ export interface Quest {
   progress: number;
   required: number;
   reward: { spirits?: number; text: string; progressBonus?: number };
+  /**
+   * The claim contract attached to API responses (GET /api/quests, join and
+   * claim): spirits now, treasury-funded token once a mint deploys. Additive
+   * response metadata — a quest row on the board never carries it, so no save
+   * round-trips it; optional on the type because a board served before this
+   * existed simply omits it.
+   */
+  rewardToken?: QuestRewardInfo;
   status: QuestStatus;
   /**
    * The resident working this quest — not the quest's giver, who only posted it.
