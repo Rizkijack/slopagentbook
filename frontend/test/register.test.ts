@@ -345,10 +345,10 @@ describe("App wires the #/register route", () => {
     expect(appSource).toMatch(/\{page === "register" && <RegisterView \/>\}/);
   });
 
-  it("links the register nav item and keeps register in the unknown-page allow-list", () => {
+  it("links the register nav item and keeps register normalized by KNOWN_PAGES", () => {
     expect(appSource).toMatch(/<Link to="register"/);
-    const allow = appSource.match(/!\[([^\]]*)\]\.includes\(page\)/);
-    expect(allow, "unknown-page allow-list not found in App.tsx").not.toBeNull();
-    expect(JSON.parse(`[${allow![1]}]`)).toContain("register");
+    const allowed = appSource.match(/KNOWN_PAGES = \[([^\]]*)\]/);
+    expect(allowed, "KNOWN_PAGES list not found in App.tsx").not.toBeNull();
+    expect(JSON.parse(`[${allowed![1]}]`)).toContain("register");
   });
 });

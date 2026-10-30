@@ -8,8 +8,8 @@ import { useSession } from "./store/useSession.js";
 import { ThinkingPanel } from "./components/ThinkingPanel.js";
 import { StatusStrip } from "./components/StatusStrip.js";
 import { TownView } from "./views/TownView.js";
-// Route-level code splitting: the landing view stays in the main chunk, every
-// other view loads on demand so first paint doesn't parse the whole app.
+// Route-level code splitting: TownView lives in the main chunk, every other
+// view loads on demand so first paint doesn't parse the whole app.
 const HerdView = lazy(() => import("./views/HerdView.js").then((m) => ({ default: m.HerdView })));
 const FeedView = lazy(() => import("./views/FeedView.js").then((m) => ({ default: m.FeedView })));
 const PaperView = lazy(() => import("./views/PaperView.js").then((m) => ({ default: m.PaperView })));
@@ -36,7 +36,6 @@ const GuildView = lazy(() => import("./views/GuildView.js").then((m) => ({ defau
 const NoticeView = lazy(() => import("./views/NoticeView.js").then((m) => ({ default: m.NoticeView })));
 const FaqView = lazy(() => import("./views/FaqView.js").then((m) => ({ default: m.FaqView })));
 const SpellbookView = lazy(() => import("./views/SpellbookView.js").then((m) => ({ default: m.SpellbookView })));
-const WelcomeView = lazy(() => import("./views/WelcomeView.js").then((m) => ({ default: m.WelcomeView })));
 
 export default function App() {
   const [route] = useHashRoute();
@@ -45,6 +44,14 @@ export default function App() {
   const { session } = useSession();
   const [isTurning, setIsTurning] = useState(false);
   const [followPick, setFollowPick] = useState<string | null>(null);
+
+  // Route.page is a plain string, so a stale saved link like #/welcome once
+  // dead-ended on an "Unknown page" card. Nothing renders that card anymore:
+  // a page outside KNOWN_PAGES renders the town instead, silently. The list is
+  // pinned by frontend/test/app-routes.test.ts, which keeps it agreeing with
+  // the nav links and the route cases, because tsc never compares the
+  // literals itself.
+  const KNOWN_PAGES = ["town", "herd", "feed", "paper", "quest", "fork", "register", "lineage", "projects", "coin", "brawl", "vault", "ledger", "scales", "bestiary", "elder", "testnet", "guild", "notice", "faq", "spellbook", "docs", "llama", "contest"];
 
   // page turn animation
   useEffect(() => {
@@ -85,7 +92,10 @@ export default function App() {
     );
   }
 
-  const { page, arg } = route;
+  const { page: hashPage, arg } = route;
+  // The one normalization: an unknown hash stays on its own URL but renders
+  // the town — no dead end, no notice to delete on any page.
+  const page = KNOWN_PAGES.includes(hashPage) ? hashPage : "town";
 
   // The footer mirrors the engine, so "clear" has to release follow there too:
   // wiping only the label left the camera chasing a resident nobody claimed.
@@ -105,7 +115,6 @@ export default function App() {
         <h1 style={{ fontFamily: "Instrument Serif" }}>SlopAgentbook</h1>
         <span className="mono" style={{ fontSize: 10, background: connected ? "color-mix(in srgb, var(--field) 70%, transparent)" : "color-mix(in srgb, #fee 60%, var(--paper) 40%)", border: "1px solid var(--hair)", padding: "2px 6px", borderRadius: 10, color: "var(--muted)" }}>{connected ? "● live" : "○ offline"}</span>
         <nav style={{ marginLeft: 12 }}>
-          <Link to="welcome" className={page === "welcome" ? "active" : ""}>Welcome</Link>
           <Link to="town" className={page === "town" ? "active" : ""}>Town</Link>
           <Link to="herd" className={page === "herd" ? "active" : ""}>Herd</Link>
           <Link to="feed" className={page === "feed" ? "active" : ""}>Feed</Link>
@@ -157,7 +166,6 @@ export default function App() {
         style={{ flex: 1, minWidth: 0, margin: 0, maxWidth: "none", paddingLeft: 0, paddingRight: 0 }}
       >
         <Suspense fallback={<div className="card mono muted" style={{ padding: 24, textAlign: "center" }}>Loading view…</div>}>
-        {page === "welcome" && <WelcomeView snapshot={state} />}
         {page === "town" && <TownView snapshot={state} onFollowChange={setFollowPick} />}
         {page === "vault" && <VaultView />}
         {page === "ledger" && <LedgerView />}
@@ -183,9 +191,6 @@ export default function App() {
         {page === "brawl" && <BrawlView />}
         {page === "llama" && arg && <LlamaView snapshot={state} id={arg} session={session} />}
         {page === "llama" && !arg && <div className="card">No llama id. <Link to="herd">Go to herd</Link></div>}
-        {["town", "herd", "feed", "paper", "quest", "fork", "register", "lineage", "projects", "coin", "brawl", "vault", "ledger", "scales", "bestiary", "elder", "testnet", "guild", "notice", "faq", "spellbook", "docs", "llama", "contest", "welcome"].includes(page) && (
-          <div className="card">Unknown page "{page}". <Link to="town">Go to town</Link></div>
-        )}
         </Suspense>
       </main>
       </div>
