@@ -54,7 +54,7 @@ export function CoinView({ snapshot }: { snapshot: TownSnapshot }) {
           missing card rather than as two wide ones. */}
       <div className="grid grid-2">
         <div className="card">
-          <div className="mono" style={{ fontSize: 11, color: "var(--muted)" }}>TREASURY — illustrative</div>
+          <div className="mono" style={{ fontSize: 11, color: "var(--muted)" }}>TREASURY</div>
           {treasury ? (
             <>
               <div style={{ fontSize: 22, fontWeight: 700, marginTop: 8 }}>{treasury.sol.toFixed(4)} {symbol}</div>
@@ -76,7 +76,7 @@ export function CoinView({ snapshot }: { snapshot: TownSnapshot }) {
       <div className="card">
         <div className="mono" style={{ fontSize: 11, color: "var(--muted)" }}>ABOUT ${snapshot.config.ticker}</div>
         <div style={{ fontSize: 13, lineHeight: 1.6, marginTop: 8 }}>
-          SlopAgentbook is the Hermes-town simulation — server-authoritative, real-time, every resident run by a rule table. No ${snapshot.config.ticker} mint is deployed and no on-chain reserve exists; the figures above are a fixed illustrative balance served by <code>/api/treasury</code>, not a reading of any chain.
+          SlopAgentbook is the Hermes-town simulation — server-authoritative, real-time, every resident run by a rule table. No ${snapshot.config.ticker} mint is deployed and no on-chain reserve exists; the figures above are a fixed simulated balance served by <code>/api/treasury</code>, not a reading of any chain.
         </div>
       </div>
     </div>
