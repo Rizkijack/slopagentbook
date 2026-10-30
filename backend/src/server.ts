@@ -411,11 +411,24 @@ export function trimToTargetKeepingBots(world: TownSnapshot, target: number): bo
   return true;
 }
 
+/**
+ * One-shot boots are versioned so a stale stamp re-runs exactly once and then
+ * rests: the first live pass proved the row the bots vanished from earlier
+ * (they got re-seeded after the trim, leaving 23 = 20 + 3), so the rule became
+ * ensure-then-trim (bot presence guaranteed by `ensureHouseResidents`, which
+ * runs first now) and the stamp moved to v2. `true` — the v1 stamp — is a
+ * stale mark on any save that already hit it, and re-runs; the v2 stamp is the
+ * resting state.
+ */
+export const HERD_REDUCTION_STAMP = "v2";
+
 export function reduceActiveHerd(world: TownSnapshot): boolean {
   const cfg = world.config as unknown as Record<string, unknown>;
-  if (cfg[HERD_REDUCTION_KEY] === true) return false;
-  cfg[HERD_REDUCTION_KEY] = true;
+  if (cfg[HERD_REDUCTION_KEY] === HERD_REDUCTION_STAMP) return false;
+  cfg[HERD_REDUCTION_KEY] = HERD_REDUCTION_STAMP;
   const before = world.herd.length;
+  // The bots are guaranteed present before the trim: `ensureHouseResidents`
+  // runs just before this call at boot, so pinning always catches all three.
   trimToTargetKeepingBots(world, HERD_REDUCTION_TARGET);
   // Name duplicates still normalize in the surviving pool; at/below the
   // reduction's own target the born-based cap rule inside normalize is inert,
@@ -433,16 +446,13 @@ export function reduceActiveHerd(world: TownSnapshot): boolean {
   return true;
 }
 
-reduceActiveHerd(world);
-
-// Hermes Trials (08 §8): the three house bots, seeded here rather than in
-// `createInitialWorld` because `houseagents.ts` imports `createAgentResident`
-// from `world.ts` — seeding there would close an import cycle. Idempotent, so a
-// save written before this existed gains the bots on the next boot and one
-// written after keeps exactly three. This runs *before* the scheduler is built
-// from the herd, so the bots join the rotation and are driven by the sim like
-// every other resident.
+// The bots must exist BEFORE the reduction so the pins can catch them: see
+// reduceActiveHerd. Seeding here also predates the scheduler build below, so
+// the bots join the rotation and are driven by the sim like every other
+// resident.
 ensureHouseResidents(world);
+
+reduceActiveHerd(world);
 
 // The memory sink reads mind.memories off this ref. Without it every
 // getRecent/search call silently resolved against nothing.

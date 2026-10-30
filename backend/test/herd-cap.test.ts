@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { defaultConfig, type TownSnapshot } from "@slopagentbook/shared";
-import { reduceActiveHerd, trimToTargetKeepingBots } from "../src/server.js";
+import { reduceActiveHerd, trimToTargetKeepingBots, HERD_REDUCTION_STAMP } from "../src/server.js";
 import { normalizeHerd } from "../src/pgstore.js";
 
 /**
@@ -28,9 +28,9 @@ function resident(id: string, born: number) {
   } as never;
 }
 
-function makeWorld(herd: unknown[], marker: boolean = false): TownSnapshot {
+function makeWorld(herd: unknown[], marker: string | boolean = false): TownSnapshot {
   return {
-    config: { ...defaultConfig, maxHerd: 200, ...(marker ? { herdReduced20261030: true } : {}) },
+    config: { ...defaultConfig, maxHerd: 200, ...(marker ? { herdReduced20261030: marker } : {}) },
     herd,
   } as unknown as TownSnapshot;
 }
@@ -57,14 +57,21 @@ describe("reduceActiveHerd (one-shot, 2026-10-30)", () => {
     expect(nonBotIds).toHaveLength(17);
     for (const id of nonBotIds) expect(id, "oldest probes should drop first").toMatch(/probe_(4[1-9]|5[0-7])$/);
     // the stamp is what makes it one-shot
-    expect((world.config as unknown as Record<string, unknown>).herdReduced20261030).toBe(true);
+    expect((world.config as unknown as Record<string, unknown>).herdReduced20261030).toBe(HERD_REDUCTION_STAMP);
   });
 
-  it("never runs twice: a stamped town is left alone", () => {
-    const world = makeWorld(SIXTY_ONE, true);
+  it("never runs twice against the same stamp: a v2 town is left alone", () => {
+    const world = makeWorld(SIXTY_ONE, HERD_REDUCTION_STAMP);
     const before = world.herd.length;
     expect(reduceActiveHerd(world)).toBe(false);
     expect(world.herd.length).toBe(before);
+  });
+
+  it("a v1 stamp (true) is stale: it re-runs exactly once", () => {
+    const world = makeWorld(SIXTY_ONE, true);
+    expect(reduceActiveHerd(world)).toBe(true);
+    expect(world.herd.length).toBe(20);
+    expect((world.config as unknown as Record<string, unknown>).herdReduced20261030).toBe(HERD_REDUCTION_STAMP);
   });
 
   it("a fresh town at 8 accepts the stamp without trimming anything", () => {
