@@ -36,6 +36,7 @@ const GuildView = lazy(() => import("./views/GuildView.js").then((m) => ({ defau
 const NoticeView = lazy(() => import("./views/NoticeView.js").then((m) => ({ default: m.NoticeView })));
 const FaqView = lazy(() => import("./views/FaqView.js").then((m) => ({ default: m.FaqView })));
 const SpellbookView = lazy(() => import("./views/SpellbookView.js").then((m) => ({ default: m.SpellbookView })));
+const WelcomeView = lazy(() => import("./views/WelcomeView.js").then((m) => ({ default: m.WelcomeView })));
 
 export default function App() {
   const [route] = useHashRoute();
@@ -51,7 +52,7 @@ export default function App() {
   // pinned by frontend/test/app-routes.test.ts, which keeps it agreeing with
   // the nav links and the route cases, because tsc never compares the
   // literals itself.
-  const KNOWN_PAGES = ["town", "herd", "feed", "paper", "quest", "fork", "register", "lineage", "projects", "coin", "brawl", "vault", "ledger", "scales", "bestiary", "elder", "testnet", "guild", "notice", "faq", "spellbook", "docs", "llama", "contest"];
+  const KNOWN_PAGES = ["welcome", "town", "herd", "feed", "paper", "quest", "fork", "register", "lineage", "projects", "coin", "brawl", "vault", "ledger", "scales", "bestiary", "elder", "testnet", "guild", "notice", "faq", "spellbook", "docs", "llama", "contest"];
 
   // page turn animation
   useEffect(() => {
@@ -115,6 +116,7 @@ export default function App() {
         <h1 style={{ fontFamily: "Instrument Serif" }}>SlopAgentbook</h1>
         <span className="mono" style={{ fontSize: 10, background: connected ? "color-mix(in srgb, var(--field) 70%, transparent)" : "color-mix(in srgb, #fee 60%, var(--paper) 40%)", border: "1px solid var(--hair)", padding: "2px 6px", borderRadius: 10, color: "var(--muted)" }}>{connected ? "● live" : "○ offline"}</span>
         <nav style={{ marginLeft: 12 }}>
+          <Link to="welcome" className={page === "welcome" ? "active" : ""}>Welcome</Link>
           <Link to="town" className={page === "town" ? "active" : ""}>Town</Link>
           <Link to="herd" className={page === "herd" ? "active" : ""}>Herd</Link>
           <Link to="feed" className={page === "feed" ? "active" : ""}>Feed</Link>
@@ -166,6 +168,7 @@ export default function App() {
         style={{ flex: 1, minWidth: 0, margin: 0, maxWidth: "none", paddingLeft: 0, paddingRight: 0 }}
       >
         <Suspense fallback={<div className="card mono muted" style={{ padding: 24, textAlign: "center" }}>Loading view…</div>}>
+        {page === "welcome" && <WelcomeView snapshot={state} />}
         {page === "town" && <TownView snapshot={state} onFollowChange={setFollowPick} />}
         {page === "vault" && <VaultView />}
         {page === "ledger" && <LedgerView />}

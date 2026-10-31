@@ -1,0 +1,350 @@
+/* BRAWL-style pixel-art RPG landing theme — STRICTLY SCOPED.
+ * Everything lives under .bl-landing so the existing newspaper theme
+ * (tokens.css / global.css) is never touched. Additive only. */
+
+.bl-landing {
+  --bl-bg: #17130e;
+  --bl-bg-2: #211a12;
+  --bl-ink: #120e0a;
+  --bl-parch: #e3d4a8;
+  --bl-parch-2: #efE3bf;
+  --bl-gold: #ffd45e;
+  --bl-orange: #ff6b1a;
+  --bl-stone: #3a3127;
+  --bl-stone-hi: #6a5940;
+  --bl-mute: #a89880;
+  --bl-faint: #6f6350;
+  background: var(--bl-bg);
+  color: var(--bl-parch);
+  font-family: "Pixelify Sans", monospace;
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: 24px;
+}
+
+.bl-landing .bl-display {
+  font-family: "Jacquard 24", serif;
+  font-weight: 400;
+  color: var(--bl-gold);
+  text-shadow: 2px 2px 0 #000;
+}
+
+.bl-landing .bl-kicker {
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--bl-orange);
+}
+
+.bl-landing .bl-hero {
+  position: relative;
+  line-height: 0;
+  border-bottom: 3px solid var(--bl-ink);
+}
+.bl-landing .bl-hero canvas {
+  width: 100%;
+  height: auto;
+  display: block;
+  image-rendering: pixelated;
+}
+.bl-landing .bl-hero-hud {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  line-height: 1.4;
+}
+.bl-landing .bl-badge {
+  background: var(--bl-ink);
+  color: var(--bl-gold);
+  border: 2px solid var(--bl-gold);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  padding: 4px 10px;
+}
+.bl-landing .bl-hero-title {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 48px 32px 24px;
+  line-height: 1.35;
+  background: linear-gradient(transparent, rgba(18, 14, 10, 0.92) 55%);
+}
+.bl-landing .bl-hero-title h2 {
+  margin: 8px 0 6px;
+  font-size: clamp(34px, 5vw, 58px);
+  line-height: 1;
+}
+.bl-landing .bl-hero-title p {
+  margin: 0;
+  max-width: 62ch;
+  color: var(--bl-parch);
+  font-size: 15px;
+  line-height: 1.6;
+}
+.bl-landing .bl-cta-row {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+  line-height: 1.4;
+}
+.bl-landing .bl-btn {
+  display: inline-block;
+  font-family: "Pixelify Sans", monospace;
+  font-size: 14px;
+  padding: 10px 20px;
+  text-decoration: none;
+  border: 3px solid var(--bl-ink);
+  box-shadow: inset 0 0 0 2px var(--bl-stone-hi);
+  cursor: pointer;
+}
+.bl-landing .bl-btn-gold {
+  background: var(--bl-gold);
+  color: var(--bl-ink);
+}
+.bl-landing .bl-btn-ghost {
+  background: transparent;
+  color: var(--bl-gold);
+  border-color: var(--bl-gold);
+  box-shadow: none;
+}
+.bl-landing .bl-btn:hover {
+  filter: brightness(1.1);
+}
+
+.bl-landing .bl-section {
+  padding: 44px 32px;
+  border-bottom: 3px solid var(--bl-ink);
+  line-height: 1.6;
+}
+.bl-landing .bl-section:last-child {
+  border-bottom: none;
+}
+.bl-landing .bl-section h3 {
+  margin: 10px 0 8px;
+  font-size: clamp(28px, 3.4vw, 40px);
+  line-height: 1.05;
+}
+.bl-landing .bl-lede {
+  max-width: 68ch;
+  color: var(--bl-parch);
+  font-size: 15px;
+  line-height: 1.7;
+  margin: 0 0 20px;
+}
+.bl-landing .bl-tale {
+  background: var(--bl-bg-2);
+  border: 3px solid var(--bl-ink);
+  box-shadow: inset 0 0 0 2px var(--bl-stone-hi);
+  padding: 24px 28px;
+  max-width: 72ch;
+  font-size: 15px;
+  line-height: 1.75;
+}
+.bl-landing .bl-tale p {
+  margin: 0 0 14px;
+}
+.bl-landing .bl-tale p:last-child {
+  margin-bottom: 0;
+}
+
+.bl-landing .bl-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-top: 20px;
+}
+.bl-landing .bl-card {
+  background: var(--bl-stone);
+  border: 3px solid var(--bl-ink);
+  box-shadow: inset 0 0 0 2px var(--bl-stone-hi);
+  padding: 20px;
+}
+.bl-landing .bl-card h4 {
+  margin: 0 0 8px;
+  font-family: "Jacquard 24", serif;
+  font-weight: 400;
+  font-size: 24px;
+  color: var(--bl-gold);
+  text-shadow: 1px 1px 0 #000;
+}
+.bl-landing .bl-card p {
+  margin: 0 0 12px;
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--bl-parch);
+}
+.bl-landing .bl-card ul {
+  margin: 0 0 14px;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--bl-parch);
+}
+.bl-landing .bl-card .bl-mini-link {
+  color: var(--bl-gold);
+  font-size: 13px;
+  text-decoration: none;
+  border-bottom: 1px solid var(--bl-gold);
+}
+
+.bl-landing .bl-quest {
+  background: var(--bl-parch);
+  color: #2a2016;
+  border: 3px solid var(--bl-ink);
+  box-shadow: inset 0 0 0 2px #b39c68, inset 0 0 0 4px var(--bl-parch-2);
+  padding: 24px 28px;
+  margin-top: 20px;
+}
+.bl-landing .bl-quest .bl-qtitle {
+  font-family: "Jacquard 24", serif;
+  font-size: 30px;
+  color: #2a2016;
+  text-shadow: none;
+  margin: 8px 0 6px;
+}
+.bl-landing .bl-quest ol {
+  margin: 12px 0;
+  padding-left: 22px;
+  font-size: 14px;
+  line-height: 1.7;
+}
+.bl-landing .bl-quest .bl-reward {
+  margin-top: 12px;
+  font-size: 13px;
+  border-top: 2px dashed #b39c68;
+  padding-top: 10px;
+}
+
+.bl-landing .bl-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 16px;
+  font-size: 14px;
+}
+.bl-landing .bl-table th,
+.bl-landing .bl-table td {
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--bl-stone-hi);
+}
+.bl-landing .bl-table th {
+  color: var(--bl-faint);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 400;
+}
+.bl-landing .bl-table td.bl-gold-td {
+  color: var(--bl-gold);
+}
+
+.bl-landing details.bl-faq {
+  border: 2px solid var(--bl-stone-hi);
+  background: var(--bl-bg-2);
+  margin-top: 10px;
+}
+.bl-landing details.bl-faq summary {
+  cursor: pointer;
+  padding: 14px 18px;
+  font-size: 15px;
+  color: var(--bl-gold);
+  list-style: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.bl-landing details.bl-faq summary::-webkit-details-marker {
+  display: none;
+}
+.bl-landing details.bl-faq summary .bl-pm {
+  color: var(--bl-orange);
+  font-size: 18px;
+}
+.bl-landing details.bl-faq[open] summary .bl-pm {
+  transform: rotate(45deg);
+}
+.bl-landing details.bl-faq .bl-a {
+  padding: 0 18px 16px;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--bl-parch);
+}
+
+.bl-landing .bl-board {
+  background: var(--bl-ink);
+  border: 3px solid var(--bl-gold);
+  padding: 24px 28px;
+  margin-top: 20px;
+}
+.bl-landing .bl-board a {
+  color: var(--bl-gold);
+}
+.bl-landing .bl-board ul {
+  margin: 10px 0 0;
+  padding-left: 20px;
+  font-size: 14px;
+  line-height: 1.8;
+}
+.bl-landing .bl-board .bl-warn {
+  color: var(--bl-orange);
+}
+
+.bl-landing .bl-final {
+  text-align: center;
+  padding: 56px 32px;
+}
+.bl-landing .bl-final h3 {
+  font-size: clamp(32px, 4.5vw, 52px);
+}
+
+@media (max-width: 860px) {
+  .bl-landing .bl-grid-3 {
+    grid-template-columns: 1fr;
+  }
+  .bl-landing .bl-section {
+    padding: 32px 20px;
+  }
+  .bl-landing .bl-hero-title {
+    padding: 40px 20px 18px;
+  }
+}
+
+/* BRAND BAND — logo bar + banner hero, stacked vertically, never overlapping. */
+.bl-landing .bl-brandbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 18px;
+  background: #0b0d12;
+  border-bottom: 3px solid var(--bl-ink);
+  line-height: 1.2;
+}
+.bl-landing .bl-brandbar-logo {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  image-rendering: pixelated;
+}
+.bl-landing .bl-brandbar-word {
+  font-family: "Pixelify Sans", monospace;
+  font-size: 22px;
+  letter-spacing: 0.08em;
+  color: var(--bl-gold);
+  text-shadow: 2px 2px 0 #000;
+}
+.bl-landing .bl-bannerhero {
+  line-height: 0;
+  border-bottom: 3px solid var(--bl-ink);
+}
+.bl-landing .bl-bannerhero img {
+  width: 100%;
+  height: auto;
+  display: block;
+  image-rendering: pixelated;
+}
