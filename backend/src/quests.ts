@@ -784,16 +784,35 @@ export function claimQuest(world: TownSnapshot, questId: string, claimedBy?: str
   return { ok: true, quest: q };
 }
 
+/**
+ * Retire quests whose horizon has passed.
+ *
+ * Pre-2026-10-31 this FILTERED the expired quests out of `world.quests`. Under
+ * the shared store that is a delete — and the merge union resurrects a quest
+ * the row still holds: whichever instance has not yet run this function writes
+ * it back, so expiry never actually landed (the stalled orphan quests on the
+ * production board rode that loop). Now the quest is MARKED `expired` instead
+ * — additive, the same answer the herd's tombstones give: removal is state,
+ * not absence. The monotonic quest merge rule (`newerQuest`) then keeps an
+ * expired row expired against any instance still carrying it as active.
+ *
+ * Claims and completions are never retired here — those stay board
+ * history. A quest written before `expiresAt` existed gets its horizon derived
+ * from `createdAt` (+24h, the same window generateQuest grants), so the oldest
+ * saves cannot ride the board forever either.
+ */
 export function refreshExpiredQuests(world: TownSnapshot): void {
   const now = Date.now();
+  const horizon = 24 * 60 * 60 * 1000;
   let expiredCount = 0;
-  world.quests = world.quests.filter((q) => {
-    if (q.expiresAt && now > q.expiresAt && q.status !== "completed" && q.status !== "claimed") {
+  for (const q of world.quests) {
+    if (q.status !== "available" && q.status !== "active") continue;
+    const expiresAt = q.expiresAt ?? (q.createdAt + horizon);
+    if (now > expiresAt) {
+      q.status = "expired";
       expiredCount++;
-      return false;
     }
-    return true;
-  });
+  }
   // keep at least 6 active/available
   while (world.quests.filter((q) => q.status === "available" || q.status === "active").length < 6) {
     const nq = generateQuest(world);

@@ -3,7 +3,7 @@ import cors from "cors";
 import type { TownSnapshot, Resident } from "@slopagentbook/shared";
 import { Hc, rf, encodeGenes } from "@slopagentbook/shared";
 import { defaultConfig, pruneRelationships } from "@slopagentbook/shared";
-import { saveAtomically, saveDebounced, flushDebounced } from "./persist.js";
+import { saveAtomically, saveDebounced, flushDebounced, refreshQuestsFromStore } from "./persist.js";
 import { normalizeHerd } from "./pgstore.js";
 import { createInitialWorld, makeResidentFromFork, generateEdition, generateWeatherEvent } from "./world.js";
 import { loadWithRecovery } from "./persist.js";
@@ -691,9 +691,13 @@ app.get("/api/status", (_req, res) => {
 });
 
 // Quests
-app.get("/api/quests", (_req, res) => {
+app.get("/api/quests", async (_req, res) => {
   // refresh expired before returning
   refreshExpiredQuests(world);
+  // read-through: the board must not echo this instance's stale memory when the
+  // row carries new/progressed/expired quests (multi-instance, see
+  // refreshQuestsFromStore). Cooldowned; no-op in file mode.
+  await refreshQuestsFromStore(DATA_PATH, world);
   // Each quest carries the claim contract: what pays now (spirits) and the
   // treasury-funded token side that activates when a mint is deployed. Pure
   // additive metadata on top of the board — the UI reads it, saves never write
@@ -715,7 +719,17 @@ app.post("/api/quests/:id/claim", async (req, res) => {
   const sessionToken = sessionCookieFrom(req);
   const sessionRecord = sessionToken ? verifyToken(world, sessionToken) : null;
   const claimant = sessionRecord ? world.herd.find((h) => h.id === sessionRecord.residentId)?.id : undefined;
-  const result = claimQuest(world, id, claimant);
+  let result = claimQuest(world, id, claimant);
+  const retriable = (err: typeof result.error): boolean =>
+    /(not found|not completed|not available)/.test(err ?? "");
+  if (!result.ok && retriable(result.error)) {
+    // Multi-instance skew: the row may already status this quest complete from
+    // another instance's claim path. One refresh + one retry, then the honest
+    // failure stands. See refreshQuestsFromStore.
+    if (await refreshQuestsFromStore(DATA_PATH, world)) {
+      result = claimQuest(world, id, claimant);
+    }
+  }
   if (!result.ok) {
     res.status(400).json({ error: result.error });
     return;
@@ -727,13 +741,14 @@ app.post("/api/quests/:id/claim", async (req, res) => {
   res.json({ ...result.quest, rewardToken: questRewardInfo(world.config) });
 });
 
-app.post("/api/quests/refresh", (req, res) => {
+app.post("/api/quests/refresh", async (req, res) => {
   if (!rateLimitQuestRefresh(clientIp(req))) {
     res.status(429).json({ error: "rate limited, try again later" });
     return;
   }
   const before = world.quests.length;
   refreshExpiredQuests(world);
+  await refreshQuestsFromStore(DATA_PATH, world);
   // also generate one fresh if under 12 — the manual top-up on a board that
   // refreshExpiredQuests already refills to 6, so 12 is this route's own floor
   if (world.quests.length < 12) {

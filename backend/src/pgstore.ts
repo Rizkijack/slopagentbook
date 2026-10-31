@@ -18,8 +18,10 @@
 //
 // Known limits, deliberate for now:
 // - On an id both instances know, OUR copy wins. Sim churn (spirits, needs,
-//   relationships, quest progress) can therefore regress by one tick when a
-//   lagging instance saves. That is ephemeral state the next tick re-derives.
+//   relationships) can therefore regress by one tick when a lagging instance
+//   saves. That is ephemeral state the next tick re-derives. QUESTS are the
+//   exception — their progress is accumulated, not re-derived, so each quest id
+//   picks by monotonic status/progress instead of ours-wins (`newerQuest`).
 // - Serving still happens from the instance's memory, so a cold instance shows
 //   its own herd until it reboots. The row is never wrong any more, but the
 //   live view can lag; converging that needs a periodic refresh from pg.
@@ -258,6 +260,59 @@ function aliveMoney<T extends Rec>(rows: T[], fields: string[], dead: Set<string
   return rows.filter((r) => !fields.some((f) => typeof r[f] === "string" && dead.has(String(r[f]))));
 }
 
+/**
+ * QUEST rule — monotonic board state, not recency and not ours-wins.
+ *
+ * Quest progress is accumulated state that only lives in the snapshot (there is
+ * no re-derivation: a lagging instance's tick would otherwise rewrite 2/3 back
+ * to 1/3 — observed live 2026-10-31, a talk quest "lost" an act between two
+ * round-trips). So the per-id pick is ordered by status, which can only move
+ * forward: available < active < expired < completed < claimed. A payout status
+ * (claimed) held by one side is terminal and beats a stale active copy of the
+ * same quest; `expired` marks a quest refreshExpiredQuests has retired, and
+ * beats active/available so an instance that has not yet seen the expiry cannot
+ * resurrect it — the union alone would, because it starts from what the row
+ * holds.
+ *
+ * Equal status ranks compare `progress` (max wins; explore's `_visited` grows
+ * alongside it), and full ties keep the writer's copy — the same
+ * ours-wins-ties convention as every other union here.
+ */
+const QUEST_STATUS_RANK: Record<string, number> = {
+  available: 0,
+  active: 1,
+  expired: 2,
+  completed: 3,
+  claimed: 4,
+};
+
+function questStatusRank(row: Rec): number {
+  return QUEST_STATUS_RANK[String(row.status)] ?? 1; // unknown status: active-ish, never lose it
+}
+
+function newerQuest(storedRow: Rec, mineRow: Rec): Rec {
+  const storedRank = questStatusRank(storedRow);
+  const mineRank = questStatusRank(mineRow);
+  if (storedRank !== mineRank) return storedRank > mineRank ? storedRow : mineRow;
+  const storedProgress = num(storedRow.progress);
+  const mineProgress = num(mineRow.progress);
+  if (storedProgress !== mineProgress) return mineProgress > storedProgress ? mineRow : storedRow;
+  return mineRow;
+}
+
+/**
+ * The quest array as it must be stored: union keyed by quest id, the monotonic
+ * rule above deciding each id, the board capped at the length the town keeps.
+ * Exported because the read-through refresh (`refreshQuestsFromStore`) applies
+ * the SAME rule to what the row holds before serving the board — a GET must be
+ * able to RAISE its view to the row's, not echo its own stale copy back.
+ */
+export function mergeQuests(stored: unknown, mine: unknown): Rec[] {
+  return unionByRule(asArr(stored), asArr(mine), (r, i) => keyOf(r, `quest${i}`), newerQuest)
+    .sort(byNumber("createdAt", -1))
+    .slice(0, 12);
+}
+
 function byNumber(field: string, dir: 1 | -1) {
   return (a: Rec, b: Rec) => {
     const av = typeof a[field] === "number" ? (a[field] as number) : 0;
@@ -447,9 +502,7 @@ export function mergeSnapshots(stored: unknown, mine: unknown): Rec {
       .slice(0, 20),
     projects: unionBy(asArr(a.projects), asArr(b.projects), (r, i) => keyOf(r, `project${i}`)),
     factions: unionBy(asArr(a.factions), asArr(b.factions), (r, i) => keyOf(r, `faction${i}`)),
-    quests: unionBy(asArr(a.quests), asArr(b.quests), (r, i) => keyOf(r, `quest${i}`))
-      .sort(byNumber("createdAt", -1))
-      .slice(0, 12),
+    quests: mergeQuests(a.quests, b.quests),
     contests: unionBy(asArr(a.contests), asArr(b.contests), (r, i) => keyOf(r, `contest${i}`))
       // a dead contestant cannot hold a place: drop them from the roster, their
       // attendance samples and the standings, but keep the contest itself

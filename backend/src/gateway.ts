@@ -28,7 +28,7 @@ import { dayClock } from "./needs.js";
 import { LOCATION_BY_ID } from "./locations.js";
 import { claimQuest, claimQuestFor, updateQuestProgress, questRewardInfo } from "./quests.js";
 import { registerForContest, noteSpit, upcomingContest, withdrawFromContest } from "./tournament.js";
-import { saveAtomically, saveDebounced, refreshFromStore } from "./persist.js";
+import { saveAtomically, saveDebounced, refreshFromStore, refreshQuestsFromStore } from "./persist.js";
 import { planRemoval, applyRemoval } from "./pgstore.js";
 import { timingSafeEqualStrings } from "./adminKey.js";
 
@@ -809,7 +809,17 @@ export function createGatewayRouter(ctx: GatewayContext): express.Router {
       // the token's resident is the claimant — this is the one claim path that knows
       // for certain who took the quest
       const ctx = agentOf(req);
-      const result = claimQuest(world, req.params.id, ctx.resident.id);
+      let result = claimQuest(world, req.params.id, ctx.resident.id);
+      const retriable = (err: typeof result.error): boolean =>
+        /(not found|not completed|not available)/.test(err ?? "");
+      if (!result.ok && retriable(result.error)) {
+        // Multi-instance skew: another instance may already have progressed or
+        // paid this quest. One refresh + one retry, then the honest failure.
+        // See refreshQuestsFromStore in persist.ts.
+        if (await refreshQuestsFromStore(DATA_PATH, world)) {
+          result = claimQuest(world, req.params.id, ctx.resident.id);
+        }
+      }
       if (!result.ok) {
         res.status(400).json({ error: result.error });
         return;
@@ -839,7 +849,17 @@ export function createGatewayRouter(ctx: GatewayContext): express.Router {
         res.status(429).json({ error: "rate limited" });
         return;
       }
-      const result = claimQuestFor(world, req.params.id, ctx.resident.id);
+      let result = claimQuestFor(world, req.params.id, ctx.resident.id);
+      const retriable = (err: typeof result.error): boolean =>
+        /(not found|not available|already claimed)/.test(err ?? "");
+      if (!result.ok && retriable(result.error)) {
+        // Multi-instance skew: another instance may have taken this quest on
+        // (or it may exist only on the row here). One refresh + one retry,
+        // then the honest failure. See refreshQuestsFromStore in persist.ts.
+        if (await refreshQuestsFromStore(DATA_PATH, world)) {
+          result = claimQuestFor(world, req.params.id, ctx.resident.id);
+        }
+      }
       if (!result.ok) {
         res.status(400).json({ error: result.error });
         return;

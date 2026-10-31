@@ -552,6 +552,83 @@ describe("mergeSnapshots", () => {
     expect((merged.contests as Snap[])).toHaveLength(8);
   });
 
+  // Quest progress is accumulated state — there is no tick that re-derives it,
+  // so the ours-wins union used to let a lagging instance rewrite 2/3 back to
+  // 1/3 (observed live 2026-10-31). Each quest id now picks by monotonic
+  // status/progress instead.
+  function quest(id: string, over: Snap = {}): Snap {
+    return {
+      id,
+      title: `quest ${id}`,
+      description: "test quest",
+      giver: "board",
+      giverName: "Board",
+      type: "talk",
+      progress: 0,
+      required: 3,
+      reward: { text: "x" },
+      status: "available",
+      createdAt: 1_000,
+      expiresAt: null,
+      ...over,
+    };
+  }
+
+  describe("mergeSnapshots — the quest monotonicity contract", () => {
+    it("a lagging instance cannot rewrite higher progress back down", () => {
+      const stored = snap({ quests: [quest("q1", { status: "active", progress: 2 })] });
+      const mine = snap({ quests: [quest("q1", { status: "active", progress: 1 })] });
+      const merged = mergeSnapshots(stored, mine) as Snap;
+      expect((merged.quests as Snap[])[0]!.progress).toBe(2);
+    });
+
+    it("a claim paid at another instance beats a stale active copy", () => {
+      const stored = snap({ quests: [quest("q1", { status: "claimed", progress: 3, claimedBy: "r1", claimedAt: 900 })] });
+      const mine = snap({ quests: [quest("q1", { status: "active", progress: 1 })] });
+      const merged = mergeSnapshots(stored, mine) as Snap;
+      expect((merged.quests as Snap[])[0]!.status).toBe("claimed");
+      expect((merged.quests as Snap[])[0]!.claimedBy).toBe("r1");
+    });
+
+    it("a quest completed at another instance is never walked back to active", () => {
+      const stored = snap({ quests: [quest("q1", { status: "completed", progress: 3 })] });
+      const mine = snap({ quests: [quest("q1", { status: "active", progress: 2 })] });
+      const merged = mergeSnapshots(stored, mine) as Snap;
+      expect((merged.quests as Snap[])[0]!.status).toBe("completed");
+    });
+
+    it("an instance that has not yet seen an expiry cannot resurrect the quest", () => {
+      // mine has retired q1 (status expired); stored still carries it active.
+      // The union starts from the stored row, so only the status rule keeps it
+      // retired.
+      const stored = snap({ quests: [quest("q1", { status: "active", progress: 1 })] });
+      const mine = snap({ quests: [quest("q1", { status: "expired" })] });
+      const merged = mergeSnapshots(stored, mine) as Snap;
+      expect((merged.quests as Snap[])[0]!.status).toBe("expired");
+    });
+
+    it("a writer that has not seen the expiry also cannot resurrect it", () => {
+      // mirror of the above with the roles swapped — a writer whose memory
+      // never expired the quest must not beat the row that says expired.
+      const stored = snap({ quests: [quest("q1", { status: "expired" })] });
+      const mine = snap({ quests: [quest("q1", { status: "active", progress: 1 })] });
+      const merged = mergeSnapshots(stored, mine) as Snap;
+      expect((merged.quests as Snap[])[0]!.status).toBe("expired");
+    });
+
+    it("new quests from the other side survive; equal states keep the writer's copy", () => {
+      const stored = snap({ quests: [quest("q_old", { status: "active", progress: 2 })] });
+      const mine = snap({
+        quests: [
+          quest("q_new", { status: "available", createdAt: 2_000 }),
+          quest("q_old", { status: "active", progress: 2 }),
+        ],
+      });
+      const merged = mergeSnapshots(stored, mine) as Snap;
+      expect((merged.quests as Snap[]).map((q) => q.id)).toEqual(["q_new", "q_old"]);
+    });
+  });
+
   it("never exceeds maxHerd even when both instances were under the cap", () => {
     // the real failure this fixes: two instances each legitimately under 64
     // saved in turn and the union came out at 69

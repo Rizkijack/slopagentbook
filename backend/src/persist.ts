@@ -5,7 +5,7 @@ import { existsSync } from "fs";
 import { dirname } from "path";
 import { neon } from "@neondatabase/serverless";
 import type { TownSnapshot } from "@slopagentbook/shared";
-import { pgLoad, pgSave, mergeSnapshots, type PgSql } from "./pgstore.js";
+import { pgLoad, pgSave, mergeSnapshots, mergeQuests, type PgSql } from "./pgstore.js";
 
 /**
  * A Neon client for the current DATABASE_URL.
@@ -234,6 +234,61 @@ export async function refreshFromStore(path: string, world: TownSnapshot): Promi
     state.inFlight = null;
   });
   return state.inFlight;
+}
+
+/**
+ * Read-through refresh for the QUEST BOARD (gateway/server quest routes).
+ *
+ * Narrowing of the refresh idea, one field only: the store row is usually
+ * AHEAD of a warm instance on quests (another instance authored, progressed or
+ * expired them), and the union merge only runs on writes — so `GET /api/quests`
+ * could answer from a memory that predates every one of those. The live 2026-10-31
+ * symptom: a quest answered for an instance that had never seen it (`claim not
+ * found` until a retry), and progress wobbled between reads.
+ *
+ * Applies the same `mergeQuests` union the write path uses, so this read can
+ * only RAISE this instance's view (monotonic pick per quest id) — it cannot
+ * rewind a claim, a completion or progress. Only `world.quests` is assigned,
+ * like the narrow three-field assign in `refreshFromStore` above, and only the
+ * same that honesty demands is said plainly: a caller triggering this read
+ * path sees the board move toward the row. That is convergence, and it is the
+ * point.
+ *
+ * Skipped without DATABASE_URL (file mode is its own store), cooldowned per
+ * world like `refreshFromStore`, never rejects (returns false on any failure)
+ * so a storage blip degrades to serving memory — the previous behaviour, not a
+ * 500.
+ */
+const questReloadStates = new WeakMap<TownSnapshot, ReloadState>();
+
+export async function refreshQuestsFromStore(path: string, world: TownSnapshot): Promise<boolean> {
+  if (!process.env.DATABASE_URL) return false;
+  const state = questReloadStates.get(world) ?? { inFlight: null, lastAttemptAt: 0 };
+  questReloadStates.set(world, state);
+  if (state.inFlight) return state.inFlight;
+  if (Date.now() - state.lastAttemptAt < RELOAD_COOLDOWN_MS) return false;
+  state.lastAttemptAt = Date.now();
+  state.inFlight = reloadQuestsFromStore(path, world).finally(() => {
+    state.inFlight = null;
+  });
+  return state.inFlight;
+}
+
+async function reloadQuestsFromStore(path: string, world: TownSnapshot): Promise<boolean> {
+  // Snapshot the board AFTER the load resolves: any request interleaving
+  // between our start and the row read belongs in `mine`.
+  try {
+    const stored = await loadWithRecovery(path);
+    if (!isTownSnapshot(stored)) return false;
+    const mergedQuests = mergeQuests((stored as TownSnapshot).quests, world.quests);
+    world.quests = mergedQuests as unknown as TownSnapshot["quests"];
+    return true;
+  } catch (e) {
+    // message only, never the error object — a driver error can carry the
+    // connection URL, same rule as refreshFromStore's catch above.
+    console.error("[persist] quest refresh from store failed", e instanceof Error ? e.message : "unknown");
+    return false;
+  }
 }
 
 /**

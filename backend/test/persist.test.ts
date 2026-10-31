@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { saveAtomically, loadWithRecovery } from "../src/persist.js";
+import { saveAtomically, loadWithRecovery, refreshQuestsFromStore } from "../src/persist.js";
 import { existsSync, rmSync } from "fs";
 import path from "path";
 import os from "os";
@@ -86,5 +86,81 @@ describe("persist pg routing (DATABASE_URL set)", () => {
     await writeFile(neverPath, JSON.stringify({ disk: true }), "utf8");
     await expect(loadWithRecovery(neverPath)).rejects.toThrow(/no data at/);
     expect(vi.mocked(neon)).toHaveBeenCalled();
+  });
+});
+
+describe("refreshQuestsFromStore — the board's read-through", () => {
+  const pgDir = path.join(os.tmpdir(), "agentbook-pg-qtest-" + Date.now());
+  const neverPath = path.join(pgDir, "never.json");
+  let prevDbUrl: string | undefined;
+
+  beforeEach(() => {
+    prevDbUrl = process.env.DATABASE_URL;
+    // unique per test: the cooldown is keyed per world, so a NEW world object
+    // per test needs no state clearing — but set the env before importing the
+    // module's behaviour matters, and it is read per call.
+    process.env.DATABASE_URL = "postgres://test";
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    if (prevDbUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = prevDbUrl;
+    try { rmSync(pgDir, { recursive: true, force: true }); } catch {}
+  });
+
+  /** A client modelled like the persist.test.ts mock, but whose SELECT returns a row. */
+  function rowDb(rowSnapshot: unknown): void {
+    vi.mocked(neon).mockImplementation(() => {
+      const exec = (async () => rowSnapshot === null ? [] : [{ snapshot: rowSnapshot }]) as never;
+      return Object.assign(exec as object, {
+        transaction: async <T,>(queries: unknown[]): Promise<T> => {
+          if (!Array.isArray(queries)) throw new Error("transaction() expects an array of queries");
+          return [] as T;
+        },
+      }) as never;
+    });
+  }
+
+  it("file mode is its own store: the read-through is a no-op", async () => {
+    delete process.env.DATABASE_URL;
+    const world = { quests: [{ id: "q1" }] } as never;
+    const ok = await refreshQuestsFromStore(neverPath, world);
+    expect(ok).toBe(false);
+    expect(vi.mocked(neon)).not.toHaveBeenCalled();
+  });
+
+  it("raises the board to the row: a quest the instance never saw appears, progress only moves forward", async () => {
+    rowDb({ herd: [], quests: [
+      // exists only on the row — authored by another instance
+      { id: "q_remote", status: "available", progress: 0, createdAt: 2_000 },
+      // the instance's copy is BEHIND the row
+      { id: "q_sync", status: "active", progress: 1, createdAt: 1_000 },
+    ] });
+    const world = { quests: [{ id: "q_sync", status: "active", progress: 0, createdAt: 1_000 }] } as never;
+    const ok = await refreshQuestsFromStore(neverPath, world);
+    expect(ok).toBe(true);
+    const board = (world as unknown as { quests: Array<{ id: string; progress: number; status: string }> }).quests;
+    expect(board.map((q) => q.id)).toEqual(["q_remote", "q_sync"]);
+    expect(board.find((q) => q.id === "q_remote")).toBeDefined();
+    expect(board.find((q) => q.id === "q_sync")!.progress).toBe(1);
+  });
+
+  it("stale memory never rewinds a claim the row already paid", async () => {
+    rowDb({ herd: [], quests: [
+      { id: "q1", status: "claimed", progress: 3, claimedBy: "r1", claimedAt: 900, createdAt: 1_000 },
+    ] });
+    const world = { quests: [{ id: "q1", status: "active", progress: 1, createdAt: 1_000 }] } as never;
+    await refreshQuestsFromStore(neverPath, world);
+    const board = (world as unknown as { quests: Array<{ id: string; status: string }> }).quests;
+    expect(board[0]!.status).toBe("claimed");
+  });
+
+  it("a storage failure serves memory, the previous behaviour, not a 500", async () => {
+    rowDb(null); // empty row → pgLoad returns null → loadWithRecovery throws
+    const world = { quests: [{ id: "q1" }] } as never;
+    const ok = await refreshQuestsFromStore(neverPath, world);
+    expect(ok).toBe(false);
+    expect((world as unknown as { quests: unknown[] }).quests).toHaveLength(1);
   });
 });

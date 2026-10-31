@@ -145,7 +145,15 @@ export const QUEST_TYPES = [
   "record",
 ] as const satisfies readonly QuestType[];
 
-export type QuestStatus = "available" | "active" | "completed" | "claimed";
+/**
+ * `"expired"` is additive (2026-10-31): refreshExpiredQuests marks an
+ * available/active quest expired instead of removing it — the store merges a
+ * plain removal straight back out of another instance's memory (same
+ * resurrection the herd delete needed tombstones for), so expiry rides ON the
+ * quest rather than being a delete. Terminal statuses (completed/claimed) win
+ * the merge against it, so a real payout is never walked back.
+ */
+export type QuestStatus = "available" | "active" | "completed" | "claimed" | "expired";
 export type QuestDifficulty = "easy" | "medium" | "hard";
 
 /**
