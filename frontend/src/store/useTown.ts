@@ -36,6 +36,52 @@ export function patchOrder(prev: TownSnapshot, ev: Record<string, unknown>): Tow
   } as TownSnapshot;
 }
 
+/**
+ * One SSE event folded into a snapshot — the pure half of the old `apply`
+ * switch, so the coalesced commit below can walk a burst of events through a
+ * single setState and the tests can drive any case without an EventSource.
+ */
+export function applyEvent(prev: TownSnapshot, ev: Record<string, unknown>): TownSnapshot {
+  switch (ev.type as string) {
+    case "order":
+      return patchOrder(prev, ev);
+    case "post": {
+      const post = (ev as { post: Post }).post;
+      return { ...prev, feed: [post, ...prev.feed].slice(0, 400) } as TownSnapshot;
+    }
+    case "llama": {
+      const llama = (ev as { llama: Resident }).llama;
+      const exists = prev.herd.some((h) => h.id === llama.id);
+      return {
+        ...prev,
+        herd: exists ? prev.herd.map((h) => (h.id === llama.id ? llama : h)) : [...prev.herd, llama],
+      } as TownSnapshot;
+    }
+    case "herd": {
+      const herd = (ev as { herd: Resident[] }).herd;
+      return { ...prev, herd } as TownSnapshot;
+    }
+    case "edition": {
+      const edition = (ev as { edition: TownSnapshot["editions"][number] }).edition;
+      return { ...prev, editions: [edition, ...prev.editions] } as TownSnapshot;
+    }
+    case "event": {
+      const event = (ev as { event: TownSnapshot["events"][number] }).event;
+      return { ...prev, events: [...prev.events, event].slice(-120) } as TownSnapshot;
+    }
+    case "quest": {
+      const quest = (ev as { quest: Quest }).quest;
+      const exists = prev.quests?.some((q) => q.id === quest.id);
+      if (exists) {
+        return { ...prev, quests: prev.quests.map((q) => (q.id === quest.id ? quest : q)) } as TownSnapshot;
+      }
+      return { ...prev, quests: [...(prev.quests ?? []), quest].slice(-12) } as TownSnapshot;
+    }
+    default:
+      return prev;
+  }
+}
+
 export function useTown() {
   const [state, setState] = useState<TownSnapshot | null>(null);
   const [connected, setConnected] = useState(false);
@@ -46,52 +92,45 @@ export function useTown() {
     let es: EventSource | null = null;
     let closed = false;
 
-    function apply(ev: Record<string, unknown>) {
+    // --- coalesced commit --------------------------------------------------
+    // Every SSE message used to be its own setState, and the server tick lands
+    // orders in clumps every TURN_MS (1.8s on the backend, 3-5 per burst in
+    // cron mode) — so TownView (leaderboard, chat board, rail) re-rendered
+    // several times in one clump, on the same cadence as the map's periodic
+    // jank. Events now queue and commit in one setState per flush window.
+    // The canvas never waits on this: its orders ride the hermes:* window
+    // events, dispatched the moment each message arrives.
+    const queued: Record<string, unknown>[] = [];
+    let flushScheduled = false;
+    const flush = () => {
+      flushScheduled = false;
+      if (closed || queued.length === 0) return;
+      const evs = queued.slice();
+      queued.length = 0;
       setState((prev) => {
         if (!prev) return prev;
-        const type = ev.type as string;
-        switch (type) {
-          case "order":
-            return patchOrder(prev, ev);
-          case "post": {
-            const post = (ev as { post: Post }).post;
-            return { ...prev, feed: [post, ...prev.feed].slice(0, 400) } as TownSnapshot;
-          }
-          case "llama": {
-            const llama = (ev as { llama: Resident }).llama;
-            const exists = prev.herd.some((h) => h.id === llama.id);
-            return {
-              ...prev,
-              herd: exists ? prev.herd.map((h) => (h.id === llama.id ? llama : h)) : [...prev.herd, llama],
-            } as TownSnapshot;
-          }
-          case "herd": {
-            const herd = (ev as { herd: Resident[] }).herd;
-            return { ...prev, herd } as TownSnapshot;
-          }
-          case "edition": {
-            const edition = (ev as { edition: TownSnapshot["editions"][number] }).edition;
-            return { ...prev, editions: [edition, ...prev.editions] } as TownSnapshot;
-          }
-          case "event": {
-            const event = (ev as { event: TownSnapshot["events"][number] }).event;
-            return { ...prev, events: [...prev.events, event].slice(-120) } as TownSnapshot;
-          }
-          case "quest": {
-            const quest = (ev as { quest: Quest }).quest;
-            const exists = prev.quests?.some((q) => q.id === quest.id);
-            if (exists) {
-              return { ...prev, quests: prev.quests.map((q) => (q.id === quest.id ? quest : q)) } as TownSnapshot;
-            }
-            return { ...prev, quests: [...(prev.quests ?? []), quest].slice(-12) } as TownSnapshot;
-          }
-          case "spit":
-          case "config":
-            return prev;
-          default:
-            return prev;
-        }
+        let s = prev;
+        for (const ev of evs) s = applyEvent(s, ev);
+        return s;
       });
+    };
+    // setTimeout rather than rAF: it keeps draining when the tab is hidden
+    // (throttled, but draining), so the queue cannot grow unbounded while the
+    // page sits in a background tab. 50ms of staleness on a district count or
+    // a thinking label is imperceptible.
+    const schedule = () => {
+      if (flushScheduled) return;
+      flushScheduled = true;
+      setTimeout(flush, 50);
+    };
+
+    function apply(ev: Record<string, unknown>) {
+      if (!ready.current) {
+        pending.current.push(ev);
+        return;
+      }
+      queued.push(ev);
+      schedule();
     }
 
     async function boot() {
@@ -102,9 +141,7 @@ export function useTown() {
         es.onerror = () => setConnected(false);
         es.onmessage = (e) => {
           try {
-            const ev = JSON.parse(e.data);
-            if (!ready.current) pending.current.push(ev);
-            else apply(ev);
+            apply(JSON.parse(e.data));
           } catch {}
         };
       } catch {
