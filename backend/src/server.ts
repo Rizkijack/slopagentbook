@@ -327,24 +327,28 @@ export function applyBrainDefault(config: Record<string, unknown>): string[] {
  *    which this leaves alone. A config that already carries a non-empty address
  *    that is not the retired default is never touched, for the same reason the
  *    brand reconciliation is not: a default must not rewrite a real value.
- *  - The exact previous default is rewritten. When the default moved to a new
- *    wallet, saves that still carried the old one would keep it forever under
- *    the absence rule, so the old value joins the same pattern
- *    `applyBrainDefault` uses: only a town still carrying that exact address is
+ *  - Every exact retired default is rewritten. Since this default exists, it has
+ *    moved twice: `5wwS…` -> `EnS8…` (2026-10-30), then `EnS8…` ->
+ *    `Ercx6e…` (2026-11-01). Saves that still carry any retired one would keep
+ *    it forever under the absence rule, so retired values join the same pattern
+ *    `applyBrainDefault` uses: only a town still carrying one of them exactly is
  *    touched; an operator-set address of any other shape is left alone.
  *
  * Returns the keys it changed so the caller can log and persist.
  */
-const PREVIOUS_TREASURY = "5wwSxR2Yttu3RieEEmKHmRq34EudDbMY42j9RLJfjMKs";
+const RETIRED_TREASURIES: ReadonlySet<string> = new Set([
+  "5wwSxR2Yttu3RieEEmKHmRq34EudDbMY42j9RLJfjMKs", // the placeholder this field's first default replaced
+  "EnS8fknZdYHkJZtGN2HcS3vExJ3fyGqubNeg5Kpr5yBx", // the 2026-10-30 default, retired 2026-11-01
+]);
 
 export function applyTreasuryAddress(config: Record<string, unknown>): string[] {
   const changed: string[] = [];
   const current = config.treasuryAddress;
   if (typeof current === "string" && current !== "" && current !== defaultConfig.treasuryAddress) {
     // An address the save actually carries. Fill-with-default only applies when
-    // the save has nothing; a real value is retargeted only when it is the one
-    // this default replaced.
-    if (current === PREVIOUS_TREASURY && defaultConfig.treasuryAddress) {
+    // the save has nothing; a real value is retargeted only when it is a retired
+    // default this current one replaced — never an operator's own address.
+    if (RETIRED_TREASURIES.has(current) && defaultConfig.treasuryAddress) {
       config.treasuryAddress = defaultConfig.treasuryAddress;
       changed.push("treasuryAddress");
     }
