@@ -66,17 +66,18 @@ const callerSchema = z.object({
   followers: z.array(z.string()),
 }) satisfies z.ZodType<Caller>;
 
-// Solana is not EVM. `chainId` and `faucetUrl` were required while the rail was
-// Robinhood Chain Testnet; on Solana the chain is named by its genesis hash and
-// mainnet has no faucet, so both became optional. Making them optional rather
-// than removing them is what lets a save written before this change still boot.
+// The rail changed shape twice: on Robinhood Chain Testnet `chainId` and
+// `faucetUrl` were required; on Solana there was no chain id and the chain was
+// named by its genesis hash; on Elysium (EVM) the chain id is the identity
+// again. Every field beyond the first four is optional, which is what lets a
+// save written in any earlier era still boot.
 const settlementChainSchema = z.object({
   name: z.string(),
   rpcUrl: z.string(),
   explorer: z.string(),
   nativeSymbol: z.string(),
-  genesisHash: z.string().optional(),
   chainId: z.number().optional(),
+  genesisHash: z.string().optional(),
   faucetUrl: z.string().optional(),
 }) satisfies z.ZodType<SettlementChain>;
 
@@ -152,10 +153,10 @@ const caller: Caller = {
 };
 
 const settlementChain: SettlementChain = {
-  name: "Solana Mainnet",
-  rpcUrl: "https://api.mainnet-beta.solana.com",
-  explorer: "https://explorer.solana.com",
-  nativeSymbol: "SOL",
+  name: "Elysium Mainnet",
+  rpcUrl: "https://rpc-live.boxa.club",
+  explorer: "https://boxa.club/explorer",
+  nativeSymbol: "HYPE",
 };
 
 /** A save written while the rail was still Robinhood Chain Testnet 46630. */
@@ -309,13 +310,13 @@ describe("TownConfig", () => {
     expect(withRail.tokenAddress).toBe(defaultConfig.tokenAddress);
   });
 
-  it("still reports Solana as the token chain (the §13 acceptance check)", () => {
-    // Moved from Base with the rail. The check itself did not change — it still
-    // asserts that the token chain is on the expected chain, which is the thing
-    // worth failing loudly if a rebrand or a default moves it.
-    expect(defaultConfig.chainName).toBe("Solana");
-    expect(defaultConfig.network).toBe("mainnet-beta");
-    expect(defaultConfig.nativeSymbol).toBe("SOL");
+  it("still reports Elysium as the token chain (the §13 acceptance check)", () => {
+    // Moved from Solana with the rail. The check itself did not change — it
+    // still asserts that the token chain is on the expected chain, which is the
+    // thing worth failing loudly if a rebrand or a default moves it.
+    expect(defaultConfig.chainName).toBe("Elysium");
+    expect(defaultConfig.network).toBe("mainnet");
+    expect(defaultConfig.nativeSymbol).toBe("HYPE");
   });
 
   it("publishes no token address until a mint is really deployed", () => {

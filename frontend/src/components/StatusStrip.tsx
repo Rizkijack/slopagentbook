@@ -11,10 +11,11 @@ type ChainStatus = {
 // and one link into the workspace. Everything is read from the server, never
 // typed here, so the strip cannot advertise a chain the backend doesn't report.
 //
-// Solana has no chain id, so the strip shows the native symbol beside the name
-// instead of a number that would mean nothing. The route kept its `#/testnet`
-// name (renaming it would break every saved link) even though the rail it opens
-// is mainnet, so the link label says what the page is, not what the hash is.
+// The strip shows the native symbol beside the name — the unit every vault
+// figure on the workspace pages is denominated in. The route kept its
+// `#/testnet` name (renaming it would break every saved link) even though the
+// rail it opens is mainnet, so the link label says what the page is, not what
+// the hash is.
 export function StatusStrip() {
   const [status, setStatus] = useState<ChainStatus | null>(null);
 

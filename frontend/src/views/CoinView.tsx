@@ -7,7 +7,7 @@ export function CoinView({ snapshot }: { snapshot: TownSnapshot }) {
   // this replaces (`chainName === "Base" ? "ETH" : "SOL"`) was a second copy of
   // a fact the config already carries, and it went wrong the moment the chain
   // changed under it.
-  const symbol = snapshot.config.nativeSymbol ?? "SOL";
+  const symbol = snapshot.config.nativeSymbol ?? "HYPE";
 
   useEffect(() => {
     let alive = true;

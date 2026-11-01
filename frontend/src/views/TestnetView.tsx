@@ -3,16 +3,16 @@ import { SETTLEMENT_CHAIN } from "@slopagentbook/shared";
 import type { Leash, Vault, Trade } from "@slopagentbook/shared";
 
 // The settlement rail app (`#/testnet`): chain status, a strongbox, and a trade
-// — on Solana Mainnet. The route kept its name and so did this file; the rail it
+// — on Elysium Mainnet. The route kept its name and so did this file; the rail it
 // talks to is mainnet, settled and final. Same shape as BrawlView: the
 // snapshot's optional arrays are read directly (absent on a fresh town) and
 // refreshed through SSE, and the chain facts come from GET /api/brawl/testnet
 // so this page never states a chain the server didn't report.
 //
-// Solana is not EVM: there is no chain id, so the page shows the live
-// solana-core version the probe reads instead, and there is no faucet on
-// mainnet, so the "dole" card says so rather than linking to a testnet that no
-// longer applies.
+// Elysium is an EVM chain (Arbitrum Nitro, chain id 99901): the probe reads
+// eth_chainId and the page shows it plus the live client version. There is no
+// faucet on mainnet, so the "dole" card says so rather than linking to a
+// testnet that no longer applies.
 //
 // Honesty rules inherited from backend/src/testnet.ts: no vault contract is
 // deployed and no signer exists, so nothing here pretends to be on-chain. The
@@ -22,11 +22,11 @@ import type { Leash, Vault, Trade } from "@slopagentbook/shared";
 type ChainStatus = {
   configured: boolean;
   reachable?: boolean;
-  /** Live solana-core version — Solana's stand-in for a chain id. */
-  coreVersion?: string;
-  /** Live genesis hash read from the RPC, and whether it is mainnet-beta's. */
-  genesisHash?: string;
-  genesisMatched?: boolean;
+  /** Live client version read from the RPC (web3_clientVersion). */
+  clientVersion?: string;
+  /** Live chain id read from the RPC, and whether it is 99901's. */
+  chainId?: number;
+  chainIdMatched?: boolean;
   chain: { name: string; rpcUrl: string; explorer: string; faucetUrl?: string; nativeSymbol: string; genesisHash?: string; chainId?: number };
   note: string;
 };
@@ -158,7 +158,7 @@ export function TestnetView() {
     <div className="stagger">
       <div className="card">
         <div className="mono" style={{ fontSize: 11, letterSpacing: "0.12em", color: "var(--muted)" }}>
-          LEASH WORKSPACE · SOLANA MAINNET
+          LEASH WORKSPACE · ELYSIUM MAINNET
         </div>
         <div style={{ fontFamily: "var(--serif)", fontSize: 34, marginTop: 4 }}>The Farrier&rsquo;s Row</div>
         <div className="muted" style={{ fontSize: 13, marginTop: 6 }}>
@@ -179,9 +179,9 @@ export function TestnetView() {
             <span className="mono" style={{ fontSize: 12, color: "var(--muted)" }}>
               native {testnet.chain.nativeSymbol}
             </span>
-            {testnet.reachable && testnet.coreVersion ? (
+            {testnet.reachable && testnet.clientVersion ? (
               <span className="mono" style={{ fontSize: 11, color: "var(--profit)" }}>
-                ● RPC reachable (solana-core {testnet.coreVersion})
+                ● RPC reachable ({testnet.clientVersion})
               </span>
             ) : testnet.reachable === false ? (
               <span className="mono" style={{ fontSize: 11, color: "var(--halt)" }}>
@@ -192,15 +192,15 @@ export function TestnetView() {
           <div className="mono" style={{ fontSize: 11, marginTop: 8, color: "var(--muted)", lineHeight: 1.5 }}>
             {testnet.note}
           </div>
-          {/* Solana names a cluster by its genesis hash. That is the thing to
-              verify, and a mismatch is shown rather than swallowed — an endpoint
-              that answers but is not mainnet-beta is worse than one that is down. */}
-          {testnet.genesisHash && (
-            <div className="mono" style={{ fontSize: 11, marginTop: 6, wordBreak: "break-all", color: testnet.genesisMatched === false ? "var(--halt)" : "var(--faint)" }}>
-              genesis {testnet.genesisHash}{" "}
-              {testnet.genesisMatched === false
-                ? "— not mainnet-beta's, do not trust this endpoint"
-                : "— matches mainnet-beta"}
+          {/* An EVM chain is named by its chain id. That is the thing to verify,
+              and a mismatch is shown rather than swallowed — an endpoint that
+              answers but is not 99901 is worse than one that is down. */}
+          {typeof testnet.chainId === "number" && (
+            <div className="mono" style={{ fontSize: 11, marginTop: 6, wordBreak: "break-all", color: testnet.chainIdMatched === false ? "var(--halt)" : "var(--faint)" }}>
+              chain id {testnet.chainId}{" "}
+              {testnet.chainIdMatched === false
+                ? "— not 99901, do not trust this endpoint"
+                : "— matches 99901"}
             </div>
           )}
           <div className="mono" style={{ fontSize: 11, marginTop: 6, color: "var(--faint)", lineHeight: 1.5 }}>
@@ -216,7 +216,7 @@ export function TestnetView() {
       {/* ---- the dole ---- */}
       {/* This used to link a testnet faucet and explain what tQUOTE and tBASE
           were worth. None of that applies on mainnet: a faucet is a testnet
-          affordance and there is no version of "mainnet SOL is worth nothing"
+          affordance and there is no version of "mainnet HYPE is worth nothing"
           that is true. The card stays because its absence would be a quieter
           claim than its presence — it now says what a reader needs to know,
           which is that there is no dole and everything sent is final. */}
@@ -225,9 +225,9 @@ export function TestnetView() {
           THE DOLE · NONE ON MAINNET
         </div>
         <div className="muted" style={{ fontSize: 13, marginTop: 6 }}>
-          A faucet hands out worthless test funds so people can practise. This rail is Solana Mainnet, where there is
+          A faucet hands out worthless test funds so people can practise. This rail is Elysium Mainnet, where there is
           no faucet because the funds are real and transfers are final. There is nothing to claim here, and nothing in
-          this town should ever ask you to send {testnet?.chain.nativeSymbol ?? "SOL"} anywhere — no contract is
+          this town should ever ask you to send {testnet?.chain.nativeSymbol ?? "HYPE"} anywhere — no contract is
           deployed, so there is no on-chain action to take.
         </div>
       </div>

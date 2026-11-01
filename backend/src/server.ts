@@ -164,27 +164,27 @@ if (rebranded.length > 0) {
  * is not in BRAND_KEYS: it points at real funds, so a default must never
  * rewrite it.
  *
- * `network` is deliberately NOT here either. "mainnet" is not a Base value — it
- * is the ordinary word for every production EVM chain, and Ethereum, Polygon and
+ * `network` is deliberately NOT here either. "mainnet" is not an Elysium value —
+ * it is the ordinary word for every production EVM chain, and Ethereum, Polygon and
  * Arbitrum all carry it. Matching it on its own would let this drag a town
- * someone pointed at Ethereum onto "mainnet-beta" while its `chainName` still
+ * someone pointed at Ethereum onto Elysium while its `chainName` still
  * said Ethereum, producing exactly the mixed config this function exists to
  * prevent. It is retargeted only once another field has identified the town.
  */
 const CHAIN_KEYS = ["chainName", "rpcUrl", "explorer", "dexUrl"] as const;
 
 /**
- * Every Base-era value a saved town may still be carrying.
+ * Every Base-era or Solana-era value a saved town may still be carrying.
  *
- * The token moved to Solana Mainnet, and changing `defaultConfig` alone is not
+ * The token moved to Elysium Mainnet, and changing `defaultConfig` alone is not
  * enough for a town that has a save: the loaded row's own config wins, so the
- * running town keeps rendering "Base", `mainnet.base.org` and basescan.org
- * indefinitely. Boot is the only point every instance passes through, so the
- * chain is reconciled here — under the same explicit-match rule that makes
+ * running town keeps rendering whichever chain it was born on indefinitely.
+ * Boot is the only point every instance passes through, so the chain is
+ * reconciled here — under the same explicit-match rule that makes
  * `applyRebrand` safe.
  *
- * `explorer` carries two entries because the field's exact Base-era form is not
- * something this repo can prove: the live save holds the full
+ * `explorer` carries the Base-era entries because the field's exact Base-era
+ * form is not something this repo can prove: the live save holds the full
  * `https://basescan.org/token/<mint>` string, but a save written before the mint
  * was appended would hold the bare `https://basescan.org`. Neither form has ever
  * been confirmed in this repository's history, so both are carried forward —
@@ -194,14 +194,21 @@ const CHAIN_KEYS = ["chainName", "rpcUrl", "explorer", "dexUrl"] as const;
  * matched, and now refuses the whole town rather than half-migrating it.
  */
 const PREVIOUS_CHAIN: Record<string, string[]> = {
-  chainName: ["Base"],
-  network: ["mainnet"],
-  rpcUrl: ["https://mainnet.base.org"],
+  chainName: ["Base", "Solana"],
+  network: ["mainnet", "mainnet-beta"],
+  rpcUrl: [
+    "https://mainnet.base.org",
+    "https://api.mainnet-beta.solana.com",
+  ],
   explorer: [
     "https://basescan.org/token/TLJ8QbLnNUxZJJ1dcqF9auUKHrtKd8aNUkscxhSDADj",
     "https://basescan.org",
+    "https://explorer.solana.com",
   ],
-  dexUrl: ["https://dexscreener.com/base/"],
+  dexUrl: [
+    "https://dexscreener.com/base/",
+    "https://dexscreener.com/solana",
+  ],
 };
 
 /**
@@ -219,7 +226,6 @@ const PREVIOUS_CHAIN: Record<string, string[]> = {
  * chain by itself. That covers the town this migration actually produced, and a
  * town somebody half-migrated by hand, while leaving a town pointed at another
  * chain untouched down to these two fields.
- *
  * Returns the keys it changed so the caller can log and persist.
  */
 export function applyChainRetarget(config: Record<string, unknown>): string[] {
@@ -233,7 +239,7 @@ export function applyChainRetarget(config: Record<string, unknown>): string[] {
   //
   // Concretely: an operator on their own Base node holds chainName "Base" but a
   // hand-set rpcUrl and explorer. Retargeting only the keys that match would give
-  // them Solana with a Base RPC behind it and no signal that anything is wrong.
+  // them Elysium with a Base RPC behind it and no signal that anything is wrong.
   const foreign = CHAIN_KEYS.some((key) => {
     const current = config[key];
     if (typeof current !== "string") return false;
@@ -241,10 +247,11 @@ export function applyChainRetarget(config: Record<string, unknown>): string[] {
   });
   if (foreign) return [];
 
-  // Is this town one of ours? A field carrying either a Base-era value or the
-  // current Solana value is enough — several may already have been migrated by
-  // hand, and any one of them settles the question. Computed BEFORE anything is
-  // rewritten, so it answers "what was this town?", not "what is it now?".
+  // Is this town one of ours? A field carrying a Base-era value, a Solana-era
+  // value, or the current Elysium value is enough — several may already have
+  // been migrated by hand, and any one of them settles the question. Computed
+  // BEFORE anything is rewritten, so it answers "what was this town?", not
+  // "what is it now?".
   const isOurs = CHAIN_KEYS.some((key) => {
     const current = config[key];
     if (typeof current !== "string") return false;
@@ -272,9 +279,20 @@ export function applyChainRetarget(config: Record<string, unknown>): string[] {
     config.network = defaultConfig.network;
     changed.push("network");
   }
-  if (!config.nativeSymbol && typeof defaultConfig.nativeSymbol === "string") {
-    config.nativeSymbol = defaultConfig.nativeSymbol;
-    changed.push("nativeSymbol");
+  // `nativeSymbol` rides the same carry rule: a Solana-era town holds the exact
+  // "SOL" the previous default wrote, and leaving it would keep a HYPE town
+  // pricing its vault in a currency the rail no longer settles. An empty field
+  // (pre-nativeSymbol save) is filled from the default as before. A hand-set
+  // symbol — anything but the era values — is left alone.
+  const symbol = config.nativeSymbol;
+  if (
+    typeof defaultConfig.nativeSymbol === "string" &&
+    (typeof symbol !== "string" || symbol === "" || symbol === "SOL")
+  ) {
+    if (defaultConfig.nativeSymbol !== symbol) {
+      config.nativeSymbol = defaultConfig.nativeSymbol;
+      changed.push("nativeSymbol");
+    }
   }
   return changed;
 }
@@ -667,7 +685,7 @@ app.get("/api/treasury", (_req, res) => {
     tokenAddress: world.config.tokenAddress,
     chainName: world.config.chainName,
     network: world.config.network,
-    nativeSymbol: world.config.nativeSymbol ?? "SOL",
+    nativeSymbol: world.config.nativeSymbol ?? defaultConfig.nativeSymbol,
     tokenDeployed: world.config.tokenDeployed === true,
     illustrative: true,
     sol: 6.00473291,

@@ -61,7 +61,7 @@ export const FAQ: FaqItem[] = [
   {
     id: "chain",
     q: "Which chain does this settle on, and is a contract deployed?",
-    a: "Solana Mainnet, settled and final. Read the facts yourself: GET /api/brawl/testnet. The contract: not deployed yet. No vault contract exists on that chain and no signer is configured, so settlement is simulated locally. Any address claiming to be this town's contract before the Notice Board changes is fake.",
+    a: "Elysium Mainnet, settled and final. Read the facts yourself: GET /api/brawl/testnet. The contract: not deployed yet. No vault contract exists on that chain and no signer is configured, so settlement is simulated locally. Any address claiming to be this town's contract before the Notice Board changes is fake.",
   },
   {
     id: "roles",

@@ -216,7 +216,7 @@ export const SPELLBOOK_SECTIONS: SpellbookSection[] = [
       "// The settlement that works today: POST /api/brawl/trades/:id/close.",
       "",
       "// import { openVault, setLeash, settle } from \"@slopagentbook/x402\"; // not published",
-      "// const vault = await openVault({ cluster: 'mainnet-beta' });    // solana",
+      "// const vault = await openVault({ chainId: 99901 });             // elysium",
       "// await setLeash(vault, { perTrade: 0.25, daily: 1, sl: -20, tp: 40, share: 20 });",
       "// const entry = await settle(vault, { tradeId, rawMovePct: 60 });",
       "// // caller share comes out of profit only; zero on a loss, same rule as the rail.",
@@ -233,13 +233,13 @@ export const SPELLBOOK_SECTIONS: SpellbookSection[] = [
       "its dependencies, not the town's vault SDK. What stands today: exactly two tools cost money — quest_create " +
       "and quest_join, $0.001 USDC each, the ones that write to the shared job board — and every other tool is " +
       "free as it always was. An unpaid call to either gets HTTP 402 with a PAYMENT-REQUIRED challenge (USDC on " +
-      "Solana Mainnet); a paid retry is verified by the facilitator, settled on-chain, then the tool runs and the " +
+      "Elysium Mainnet); a paid retry is verified by the facilitator, settled on-chain, then the tool runs and the " +
       "result carries the settlement receipt in PAYMENT-RESPONSE. The rail needs X402_FACILITATOR_URL and " +
       "X402_PAY_TO set on the server; without them the two answer -32001 naming the missing vars — never a free " +
       "ride. The chain is " +
       SETTLEMENT_CHAIN.name +
-      ", genesis " +
-      SETTLEMENT_CHAIN.genesisHash +
+      ", chain id " +
+      SETTLEMENT_CHAIN.chainId +
       " (read from SETTLEMENT_CHAIN, not retyped). POST /mcp is mounted only behind MCP_HTTP=1 — that env is set " +
       "in production, and /mcp is routed to the backend function there in vercel.json.",
     code: [

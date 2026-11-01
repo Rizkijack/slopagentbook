@@ -8,7 +8,10 @@ export interface Route {
 export function parseHash(hash: string): Route {
   const clean = hash.replace(/^#\/?/, "");
   const [page, arg] = clean.split("/");
-  return { page: page || "town", arg };
+  // The empty hash is the landing: a visitor typing the bare domain gets the
+  // Welcome page, not the town. Explicit unknown hashes still fall through to
+  // the town via App's KNOWN_PAGES normalization.
+  return { page: page || "welcome", arg };
 }
 
 export function useHashRoute(): [Route, (to: string) => void] {

@@ -63,8 +63,8 @@ describe("API", () => {
     expect(res.body.tokenAddress).toBe("");
     expect(res.body.tokenDeployed).toBe(false);
     expect(res.body.illustrative).toBe(true);
-    expect(res.body.chainName).toBe("Solana");
-    expect(res.body.nativeSymbol).toBe("SOL");
+    expect(res.body.chainName).toBe("Elysium");
+    expect(res.body.nativeSymbol).toBe("HYPE");
     expect(res.body.sol).toBeGreaterThan(0);
   });
 

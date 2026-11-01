@@ -36,15 +36,15 @@ describe("BRAWL rail", () => {
   it("GET /api/brawl/testnet reports the rail and says plainly no contract is deployed", async () => {
     const res = await request(app).get("/api/brawl/testnet");
     expect(res.status).toBe(200);
-    // Solana is not EVM: there is no chain id to report, and the page says so
-    // by showing the live solana-core version instead. What it must never do
-    // is keep claiming the old EVM number.
-    expect(res.body.chain.name).toBe("Solana Mainnet");
-    expect(res.body.chain.nativeSymbol).toBe("SOL");
-    expect(res.body.chain.chainId).toBeUndefined();
+    // Elysium is EVM, so the identity is a chain id again — and the Solana-era
+    // genesis field is absent rather than carried over stale.
+    expect(res.body.chain.name).toBe("Elysium Mainnet");
+    expect(res.body.chain.nativeSymbol).toBe("HYPE");
+    expect(res.body.chain.chainId).toBe(99901);
+    expect(res.body.chain.rpcUrl).toBe("https://rpc-live.boxa.club");
+    expect(res.body.chain.explorer).toBe("https://boxa.club/explorer");
+    expect(res.body.chain.genesisHash).toBeUndefined();
     expect(res.body.chain.faucetUrl).toBeUndefined();
-    // the identity it reports instead is the mainnet-beta genesis hash
-    expect(res.body.chain.genesisHash).toBe("5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d");
     expect(res.body.note).toMatch(/no vault contract is deployed/i);
   });
 

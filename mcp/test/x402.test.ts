@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { SETTLEMENT_CHAIN } from "@slopagentbook/shared";
 import {
   decodePaymentRequiredHeader,
   encodePaymentSignatureHeader,
@@ -276,11 +275,14 @@ describe("x402 facts and network identity", () => {
     });
   });
 
-  it("X402_NETWORK is computed from SETTLEMENT_CHAIN.genesisHash, and its CAIP-2 form is the SDK's own", () => {
-    expect(X402_NETWORK).toBe(`solana:${SETTLEMENT_CHAIN.genesisHash}`);
+  it("X402_NETWORK carries the payment rail's own Solana identity, and its CAIP-2 form is the SDK's own", () => {
+    // The x402 rail keys on Solana — the SVM scheme it speaks — independently of
+    // the town's settlement chain (Elysium, an EVM chain with no USDC contract
+    // this rail can name). See the comment above X402_SOLANA_GENESIS in x402.ts.
+    expect(X402_NETWORK).toBe("solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d");
     // The 32-char CAIP-2 used for the asset lookup must be @x402/svm's constant,
     // not a second table: same cluster, same id, one owner.
-    expect(`solana:${SETTLEMENT_CHAIN.genesisHash!.slice(0, 32)}`).toBe(SOLANA_MAINNET_CAIP2);
+    expect(X402_SVM_CAIP2).toBe(SOLANA_MAINNET_CAIP2);
   });
 });
 
@@ -354,7 +356,7 @@ describe("402 challenge built by the real x402 SDK", () => {
     expect(decoded.x402Version).toBe(2);
     expect(decoded.resource).toMatchObject({ url: "mcp:tools/call/world_status" });
     expect(decoded.accepts).toHaveLength(1);
-    expect(X402_SVM_CAIP2).toBe(`solana:${SETTLEMENT_CHAIN.genesisHash!.slice(0, 32)}`);
+    expect(X402_SVM_CAIP2).toBe(SOLANA_MAINNET_CAIP2); // the SDK's own constant, not a second table
     expect(X402_SVM_CAIP2).not.toBe(X402_NETWORK); // two ids, one cluster — see the table in x402.ts
     expect(decoded.accepts[0]).toMatchObject({
       scheme: new ExactSvmScheme().scheme,

@@ -18,12 +18,12 @@ type HiscoresRow = { agentId: string; trades: number; wins: number; winRate: num
 type ChainStatus = {
   configured: boolean;
   reachable: boolean;
-  /** Live solana-core version — Solana has no chain id to report. */
-  coreVersion?: string;
-  /** Live genesis hash read from the RPC, and whether it is mainnet-beta's. */
-  genesisHash?: string;
-  genesisMatched?: boolean;
-  chain: { name: string; nativeSymbol?: string; rpcUrl?: string; explorer: string; genesisHash?: string };
+  /** Live client version read from the RPC (web3_clientVersion). */
+  clientVersion?: string;
+  /** Live chain id read from the RPC, and whether it is 99901's. */
+  chainId?: number;
+  chainIdMatched?: boolean;
+  chain: { name: string; nativeSymbol?: string; rpcUrl?: string; explorer: string; chainId?: number };
   note: string;
 };
 
@@ -100,7 +100,7 @@ export function BrawlView() {
             </span>
             {testnet.reachable ? (
               <span className="mono" style={{ fontSize: 11, color: "var(--profit)" }}>
-                ● RPC reachable{testnet.coreVersion ? ` (solana-core ${testnet.coreVersion})` : ""}
+                ● RPC reachable{testnet.clientVersion ? ` (${testnet.clientVersion})` : ""}
               </span>
             ) : (
               <span className="mono" style={{ fontSize: 11, color: "var(--halt)" }}>
@@ -108,15 +108,15 @@ export function BrawlView() {
               </span>
             )}
           </div>
-          {/* Solana names a cluster by its genesis hash, so that is what a reader
+          {/* An EVM chain is named by its chain id, so that is what a reader
               verifies. A mismatch is shown rather than buried: an endpoint that
-              answers but is not mainnet-beta is worse than one that is down. */}
-          {testnet.genesisHash && (
-            <div className="mono" style={{ fontSize: 11, marginTop: 8, wordBreak: "break-all", color: testnet.genesisMatched === false ? "var(--halt)" : "var(--muted)" }}>
-              genesis {testnet.genesisHash}{" "}
-              {testnet.genesisMatched === false
-                ? "— not mainnet-beta's, do not trust this endpoint"
-                : "— matches mainnet-beta"}
+              answers but is not 99901 is worse than one that is down. */}
+          {typeof testnet.chainId === "number" && (
+            <div className="mono" style={{ fontSize: 11, marginTop: 8, wordBreak: "break-all", color: testnet.chainIdMatched === false ? "var(--halt)" : "var(--muted)" }}>
+              chain id {testnet.chainId}{" "}
+              {testnet.chainIdMatched === false
+                ? "— not 99901, do not trust this endpoint"
+                : "— matches 99901"}
             </div>
           )}
           {/* The rail's honesty, surfaced rather than buried: no contract is

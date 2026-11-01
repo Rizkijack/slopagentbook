@@ -2,9 +2,9 @@ import { describe, it, expect } from "vitest";
 import { parseHash } from "../src/router/hash.js";
 
 describe("parseHash", () => {
-  it("defaults to town", () => {
-    expect(parseHash("").page).toBe("town");
-    expect(parseHash("#/").page).toBe("town");
+  it("defaults to the welcome landing", () => {
+    expect(parseHash("").page).toBe("welcome");
+    expect(parseHash("#/").page).toBe("welcome");
     expect(parseHash("#/town").page).toBe("town");
   });
   it("parses llama id", () => {

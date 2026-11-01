@@ -198,12 +198,16 @@ export const defaultConfig: TownConfig = {
    * no token behind it.
    */
   treasuryAddress: "Ercx6eCWZ59kkP3pNLRSMYvKQNrP26VdKhzPmv2k818M",
-  chainName: "Solana",
-  network: "mainnet-beta",
-  nativeSymbol: "SOL",
-  rpcUrl: "https://api.mainnet-beta.solana.com",
-  explorer: "https://explorer.solana.com",
-  dexUrl: "https://dexscreener.com/solana",
+  chainName: "Elysium",
+  network: "mainnet",
+  nativeSymbol: "HYPE",
+  rpcUrl: "https://rpc-live.boxa.club",
+  explorer: "https://boxa.club/explorer",
+  // DexScreener has no Elysium page yet (verified: the slug 404s), so the
+  // default is the site the reader can actually search. The pair URL is set by
+  // hand the day a token deploys — CoinView shows these buttons only when
+  // `tokenDeployed` is true.
+  dexUrl: "https://dexscreener.com",
   xUrl: "https://x.com/slopagentbook",
   // No provider is wired, so the town runs its rule table and nothing else.
   // This used to say "llm", which the runtime ignored entirely — `createBrain()`

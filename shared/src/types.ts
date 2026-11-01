@@ -541,29 +541,30 @@ export interface Caller {
 // === BRAWL: settlement chain — field optional BARU ===
 // The settlement rail lives ALONGSIDE the token chain rather than replacing it:
 // defaultConfig (config.ts) describes the token chain, and the two now agree on
-// Solana Mainnet without either of them being written by this interface.
+// Elysium Mainnet without either of them being written by this interface.
 //
-// Solana is not EVM, which is what shapes every field below. There is no chain
-// id in the eth_chainId sense — the chain is named by its genesis hash — so
-// `chainId` is optional and `genesisHash` carries the identity instead. There is
-// no faucet on mainnet, so `faucetUrl` is optional and omitted rather than left
-// pointing at a testnet that no longer applies.
+// Elysium is an EVM chain (Arbitrum Nitro), so the identity is `chainId` — 99901,
+// the number the probe checks live with eth_chainId. `genesisHash` stays optional
+// for the Solana era, when the chain had no chain id and was named by its genesis
+// hash instead; it is no longer set. There is no faucet on mainnet, so
+// `faucetUrl` is optional and omitted rather than left pointing at a testnet
+// that no longer applies.
 //
-// Every new field is optional so a save written before this change still loads;
-// the only field that was required and no longer is `chainId`.
+// Every field beyond the first four is optional so a save written before this
+// change still loads.
 export interface SettlementChain {
-  name: string;      // "Solana Mainnet"
-  rpcUrl: string;    // https://api.mainnet-beta.solana.com
-  explorer: string;  // https://explorer.solana.com
-  nativeSymbol: string; // "SOL"
-  /** The genesis hash, in base58. Solana's equivalent of a chain id. */
-  genesisHash?: string;
+  name: string;      // "Elysium Mainnet"
+  rpcUrl: string;    // https://rpc-live.boxa.club
+  explorer: string;  // https://boxa.club/explorer
+  nativeSymbol: string; // "HYPE"
   /**
-   * EVM chain id, for the era when this rail was Robinhood Chain Testnet 46630.
-   * Kept so an older save still validates and still reads correctly; never set
-   * on a new one, because the number means nothing on Solana.
+   * EVM chain id — the rail's identity. The probe reads it live with
+   * `eth_chainId` and compares; a mismatch is the one fact that answers "is
+   * this really Elysium".
    */
   chainId?: number;
+  /** The Solana-era identity, in base58. Kept so an older save still reads. */
+  genesisHash?: string;
   /** Testnet-only. There is no faucet on mainnet, so this is simply absent. */
   faucetUrl?: string;
 }

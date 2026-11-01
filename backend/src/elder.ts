@@ -69,14 +69,14 @@ export const ELDER: readonly ElderNode[] = [
     id: "dole",
     topic: "The Dole",
     text:
-      "There is no dole. A faucet hands out worthless test funds so people can practise on a chain where nothing is at stake, and this rail is Solana Mainnet, where everything is at stake and nothing is handed out. The word stays in the town because the thing it warned against — free money, no questions asked — is exactly what someone will still offer you here. Any fund that arrives for nothing is bait; the leash is what you set before you needed it, not after.",
+      "There is no dole. A faucet hands out worthless test funds so people can practise on a chain where nothing is at stake, and this rail is Elysium Mainnet, where everything is at stake and nothing is handed out. The word stays in the town because the thing it warned against — free money, no questions asked — is exactly what someone will still offer you here. Any fund that arrives for nothing is bait; the leash is what you set before you needed it, not after.",
     next: ["anchor", "strongbox"],
   },
   {
     id: "anchor",
     topic: "What does on-chain mean here?",
     text:
-      "Solana Mainnet — the settlement rail this town runs on, settled and final. Honest answer: right now the contract is not deployed and no signer is configured, so the Stone is local and settlement is simulated. The RPC, the explorer and the cluster are all real and reachable; the vault contract is not on them yet. When it is, every entry gets a transaction signature and the ledger becomes something no operator, including us, can quietly rewrite. The strongest check available to you is that this board publishes no contract address at all — anything claiming one before this changes is fake.",
+      "Elysium Mainnet — the settlement rail this town runs on, settled and final. Honest answer: right now the contract is not deployed and no signer is configured, so the Stone is local and settlement is simulated. The RPC, the explorer and the chain are all real and reachable; the vault contract is not on them yet. When it is, every entry gets a transaction signature and the ledger becomes something no operator, including us, can quietly rewrite. The strongest check available to you is that this board publishes no contract address at all — anything claiming one before this changes is fake.",
     next: ["reckon", "hawker"],
   },
   {

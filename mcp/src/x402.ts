@@ -1,4 +1,3 @@
-import { SETTLEMENT_CHAIN } from "@slopagentbook/shared";
 import type { x402ResourceServer } from "@x402/core/server";
 import type { AssetAmount, Network, PaymentPayload, PaymentRequirements } from "@x402/core/types";
 import type { ExactSvmScheme } from "@x402/svm/exact/server";
@@ -30,18 +29,21 @@ import { TOOL_NAMES } from "./tools.js";
  */
 
 /**
- * The interface marks `genesisHash` optional only so an older save still
- * validates; `shared/src/settlement.ts` always sets it, and without it this rail
- * has no name — so refuse loudly instead of letting "solana:undefined" reach the
- * wire as a network id.
+ * The x402 payment rail keys on Solana mainnet — the SVM scheme this SDK
+ * carries, and the USDC mint its own default-asset table resolves. The town's
+ * SETTLEMENT_CHAIN has since moved to Elysium Mainnet (an EVM chain, chain id
+ * 99901), and this rail cannot follow it yet: no EVM scheme is wired here, no
+ * USDC contract on Elysium exists in any default-asset table, and typing one in
+ * would fabricate an address. So the payment rail carries its own chain
+ * identity — the two rails are separate layers, and each names its own chain.
+ * The day an EVM facilitator lands, this constant retires with the rest of the
+ * SVM wiring.
  */
-const GENESIS_HASH = SETTLEMENT_CHAIN.genesisHash;
-if (!GENESIS_HASH) {
-  throw new Error("SETTLEMENT_CHAIN.genesisHash is missing — x402 cannot name its network without it.");
-}
+const X402_SOLANA_GENESIS = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
 
 /**
- * TWO SOLANA IDS FOR ONE CLUSTER, both derived from SETTLEMENT_CHAIN, one owner:
+ * TWO SOLANA IDS FOR ONE CLUSTER, both derived from X402_SOLANA_GENESIS, one
+ * owner (the comment above):
  *
  * - X402_NETWORK — the FULL id `solana:<genesis hash>` (49+ chars). This is the
  *   id this rail NAMES ITSELF by in every PaymentRequired, every error, and in
@@ -54,15 +56,12 @@ if (!GENESIS_HASH) {
  *   full id made matches fail live (“does not support exact…”), so registration
  *   and asset lookup use the truncated id and the requirements carry it on the
  *   wire with the SAME amount of chain identity.
- *
- * Both are written from SETTLEMENT_CHAIN here — the repo's one owner of this
- * cluster — and never typed as literals.
  */
-const X402_NETWORK_ID: Network = `solana:${GENESIS_HASH}`; // the rail's own name (full genesis)
+const X402_NETWORK_ID: Network = `solana:${X402_SOLANA_GENESIS}`; // the rail's own name (full genesis)
 export const X402_NETWORK: string = X402_NETWORK_ID;
 
 /** The CAIP-2 (≤32-char chain id) form the SDK + facilitators key on. */
-const SVM_MAINNET_CAIP2: Network = `solana:${GENESIS_HASH.slice(0, 32)}`;
+const SVM_MAINNET_CAIP2: Network = `solana:${X402_SOLANA_GENESIS.slice(0, 32)}`;
 export const X402_SVM_CAIP2: string = SVM_MAINNET_CAIP2;
 
 /**

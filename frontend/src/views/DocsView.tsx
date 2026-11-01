@@ -88,7 +88,7 @@ export function DocsView({ snapshot }: { snapshot: TownSnapshot }) {
         </section>
       </div>
 
-      <div className="mono faint" style={{ fontSize: 10, textAlign: "center" }}>Source: reverse engineering of tryllamabook.com — 5 docs · SlopAgentbook adaptation adds a Solana Mainnet settlement rail + Hermes sprites.</div>
+      <div className="mono faint" style={{ fontSize: 10, textAlign: "center" }}>Source: reverse engineering of tryllamabook.com — 5 docs · SlopAgentbook adaptation adds an Elysium Mainnet settlement rail + Hermes sprites.</div>
     </div>
   );
 }
