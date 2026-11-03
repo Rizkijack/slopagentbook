@@ -165,7 +165,7 @@ if (booted !== "object") {
 console.log("\n== the canvas actually draws ==");
 {
   // A canvas element can exist, be correctly sized, and still be blank. Sample it.
-  const stats = await js(`(() => {
+  const sample = () => js(`(() => {
     const c = document.querySelector('canvas.town') || document.querySelector('canvas');
     if (!c) return null;
     const g = c.getContext('2d');
@@ -177,6 +177,16 @@ console.log("\n== the canvas actually draws ==");
     }
     return { w, h, opaque, distinct: seen.size };
   })()`);
+  // The fixed boot wait above covers the app mounting, but the first painted
+  // frame depends on how fast /api/snapshot answers — on a cold or slow edge
+  // the canvas is still transparent this early. Give the first frame up to 12s
+  // rather than calling a slow backend a blank canvas. The assertions below are
+  // unchanged: if no frame ever lands, this still fails.
+  let stats = await sample();
+  for (let waited = 0; waited < 12000 && (!stats || stats.opaque === 0); waited += 750) {
+    await sleep(750);
+    stats = await sample();
+  }
   check("canvas exists", Boolean(stats), "no canvas found");
   if (stats) {
     check("canvas is non-blank", stats.opaque > 0, JSON.stringify(stats));
