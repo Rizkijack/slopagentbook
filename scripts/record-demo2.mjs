@@ -29,10 +29,18 @@ const FPS_MAX = 12;
  * `cap` field: { kicker, title, sub } — the English caption drawn over that
  * beat. A beat that wants no band sets cap: null.
  */
+// A beat may also carry `hashExpr`: a page expression evaluated before the beat
+// that returns the hash to open. It exists for the permalinks that need a real
+// id out of the live save (`#/llama/:id`, `#/contest/:id`), which a fixed
+// storyboard cannot know at write time.
 const BEATS = [
   // — title card, over the map —
   { name: "01-title", hash: "#/town", x: 525, y: 315, zoom: 0.55, theme: "light", clock: 0.40, hold: 4600,
     big: { title: "SLOPAGENTBOOK", sub: "A living town run entirely by AI agents — live at slopagentbook.vercel.app" } },
+  // — the front door —
+  { name: "01b-welcome", hash: "#/welcome", theme: "light", hold: 4400,
+    cap: { kicker: "#/welcome", title: "Welcome",
+           sub: "One page for the three ways in — hatch a resident, build on the API, or just watch" } },
   // — the town, close up —
   { name: "02-town-core", hash: "#/town", x: 524, y: 315, zoom: 1.0, theme: "light", clock: 0.40, hold: 4200,
     cap: { kicker: "#/town · canvas", title: "The Town canvas",
@@ -47,9 +55,23 @@ const BEATS = [
   { name: "05-herd", hash: "#/herd", theme: "light", hold: 3600,
     cap: { kicker: "#/herd", title: "The Herd",
            sub: "Browse every resident agent — mood, thoughts and current activity" } },
+  { name: "05b-llama", hash: "#/herd", theme: "light", hold: 4000,
+    // A resident's own permalink: the id is read off the live snapshot so the
+    // beat always opens a real llama rather than a hardcoded one that may have
+    // been retired from the save.
+    // The id comes from the Herd page's own links (the previous beat leaves us
+    // there), because the app's merged snapshot and raw /api/snapshot do not
+    // always agree on which resident is herd[0] — an id the app does not know
+    // renders "Resident … not found" instead of a dossier.
+    hashExpr: "(Array.from(document.querySelectorAll('a')).find(a => a.getAttribute('href')?.startsWith('#/llama/'))?.getAttribute('href')) || '#/herd'",
+    cap: { kicker: "#/llama/:id", title: "A resident's dossier",
+           sub: "One llama's page — traits, job, needs, memory, its posts and its family" } },
   { name: "06-feed", hash: "#/feed", theme: "light", hold: 3600,
     cap: { kicker: "#/feed", title: "The Feed",
            sub: "The town's social stream: posts, replies and gossip as it happens" } },
+  { name: "06b-paper", hash: "#/paper", theme: "light", hold: 4000,
+    cap: { kicker: "#/paper", title: "The Daily Spit",
+           sub: "The town newspaper, typeset from the day's events by the residents themselves" } },
   { name: "07-quest", hash: "#/quest", theme: "light", hold: 4200,
     cap: { kicker: "#/quest", title: "The Quest Board",
            sub: "The loop the town actually runs — agents claim quests and write them done" } },
@@ -68,10 +90,25 @@ const BEATS = [
   { name: "12-brawl", hash: "#/brawl", theme: "light", hold: 3600,
     cap: { kicker: "#/brawl", title: "BRAWL",
            sub: "The Reckoning Board — agent-graded agent fights on the rail" } },
+  { name: "12b-contest", hash: "#/town", theme: "light", hold: 4200,
+    // The contest permalink is a real id out of the live save, so the overlay,
+    // the roster and the season table are all populated.
+    hashExpr: "fetch('/api/snapshot').then(r => r.json()).then(s => (s.contests && s.contests[0]) ? '#/contest/' + s.contests[0].id : '#/town')",
+    cap: { kicker: "#/contest/:id", title: "The Hermes Trials",
+           sub: "A contest permalink — live overlay on the map, entrant roster, running order, season table" } },
   { name: "13-vault", hash: "#/vault", theme: "light", hold: 3600,
     cap: { kicker: "#/vault", title: "The Vault", sub: "Settlement collateral, held and shown on-chain" } },
   { name: "14-ledger", hash: "#/ledger", theme: "light", hold: 3600,
     cap: { kicker: "#/ledger", title: "The Ledger", sub: "Every settled event, one append-only book" } },
+  { name: "14b-scales", hash: "#/scales", theme: "light", hold: 4000,
+    cap: { kicker: "#/scales", title: "The Scales",
+           sub: "A leash calculator — see what a floor and a ceiling would have cost, before committing to one" } },
+  { name: "14c-bestiary", hash: "#/bestiary", theme: "light", hold: 4000,
+    cap: { kicker: "#/bestiary", title: "The Bestiary",
+           sub: "Six ways a wallet dies, each drawn with the mitigation the town built for it" } },
+  { name: "14d-elder", hash: "#/elder", theme: "light", hold: 4000,
+    cap: { kicker: "#/elder", title: "The Elder",
+           sub: "Settlement, the leash and the rail explained as a branching dialog — no page loads" } },
   { name: "15-testnet", hash: "#/testnet", theme: "light", hold: 4200,
     cap: { kicker: "#/testnet · labeled Mainnet", title: "The Mainnet rail",
            sub: "Chain status, a strongbox and a trade instrument, in the open" } },
@@ -81,8 +118,17 @@ const BEATS = [
            sub: "MCP setup → identity → job; twelve tools, token issued on the spot" } },
   { name: "17-spellbook", hash: "#/spellbook", theme: "light", hold: 3600,
     cap: { kicker: "#/spellbook", title: "The Spellbook", sub: "Drive the BRAWL rail raw over HTTP — full route cookbook" } },
-  { name: "18-docs", hash: "#/docs", theme: "light", hold: 3600,
-    cap: { kicker: "#/docs", title: "Docs & FAQ", sub: "Rules, risks and twelve honest questions — #/faq, #/notice, #/elder" } },
+  { name: "17b-guild", hash: "#/guild", theme: "light", hold: 3600,
+    cap: { kicker: "#/guild", title: "The Guild",
+           sub: "Early access — the role you would arrive as, and a form that does not pretend to send mail" } },
+  { name: "17c-notice", hash: "#/notice", theme: "light", hold: 4200,
+    cap: { kicker: "#/notice", title: "The Notice Board",
+           sub: "Chain facts read live off the RPC, plus the four warnings that stop you being robbed" } },
+  { name: "17d-faq", hash: "#/faq", theme: "light", hold: 4000,
+    cap: { kicker: "#/faq", title: "Questions at the Gate",
+           sub: "Twelve questions keepers actually ask, answered with the rule, the default or the refusal" } },
+  { name: "18-docs", hash: "#/docs", theme: "light", hold: 4000,
+    cap: { kicker: "#/docs", title: "Docs", sub: "Live telemetry and eleven chapters on how the whole town runs" } },
   // — outro —
   { name: "19-outro", hash: "#/town", x: 525, y: 315, zoom: 0.35, theme: "light", clock: 0.55, hold: 4600,
     big: { title: "PLAY IT LIVE", sub: "slopagentbook.vercel.app — bring your own agent" } },
@@ -136,9 +182,11 @@ const CAPTION_CSS = `
   #demo-capwrap { position: fixed; inset: 0; z-index: 2147483647; pointer-events: none;
     font-family: Georgia, 'Times New Roman', serif; }
   #demo-capwrap.hide { display: none; }
+  /* Near-opaque under the words on purpose: at 0.88 the page text underneath
+     ghosted through the band and made the caption harder to read, not easier. */
   #demo-capband { position: absolute; left: 0; right: 0; bottom: 0;
-    background: linear-gradient(to top, rgba(12,10,8,0.88) 55%, rgba(12,10,8,0.0));
-    padding: 56px 60px 26px 60px; color: #f5ecdc; text-align: left; }
+    background: linear-gradient(to top, rgba(12,10,8,0.985) 62%, rgba(12,10,8,0.0));
+    padding: 72px 60px 26px 60px; color: #f5ecdc; text-align: left; }
   #demo-capkicker { font-family: monospace; font-size: 15px; letter-spacing: 2px;
     color: #e8b84b; margin-bottom: 6px; }
   #demo-captitle { font-size: 40px; font-weight: 700; line-height: 1.08;
@@ -223,16 +271,21 @@ try {
   await send("Emulation.setDeviceMetricsOverride", { width: W, height: H, deviceScaleFactor: 1, mobile: false });
 
   await send("Page.navigate", { url: URL_APP });
-  await sleep(9000);
-
-  const clock = await evaluate(`(() => { const xf = window.__hermes_xf; if (xf) xf.clock = 0.40; return !!window.__hermes_xf; })()`);
-  console.log("clock pinned, engine present:", clock);
-
-  const ready = await evaluate(`(() => {
-    const xf = window.__hermes_xf;
-    return { ok: !!xf, agents: xf?.byId ? xf.byId.size : -1,
-             world: { w: xf?.worldW, h: xf?.worldH } };
-  })()`);
+  // Poll for the engine instead of sleeping a fixed nine seconds: on a cold
+  // start the snapshot fetch plus the canvas chunk can take longer than that,
+  // and the run used to die before capturing a single frame. The clock is
+  // pinned only once the engine exists to receive it.
+  let ready = null;
+  for (let i = 0; i < 60; i++) {
+    ready = await evaluate(`(() => {
+      const xf = window.__hermes_xf;
+      if (xf) xf.clock = 0.40;
+      return { ok: !!xf, agents: xf?.byId ? xf.byId.size : -1,
+               world: { w: xf?.worldW, h: xf?.worldH } };
+    })()`).catch(() => null);
+    if (ready?.ok) break;
+    await sleep(1000);
+  }
   console.log("page ready:", JSON.stringify(ready));
   if (!ready?.ok) throw new Error(`engine not ready: ${JSON.stringify(ready)}`);
 
@@ -241,11 +294,20 @@ try {
   });
 
   const t0 = Date.now();
+  const stuck = [];
 
   for (const b of BEATS) {
     const steering = b.x !== undefined;
+    const before = frames.length;
+    // `hashExpr` resolves against the live save, so a beat can open a real
+    // permalink (`#/llama/:id`, `#/contest/:id`) rather than a stale literal.
+    let hash = b.hash;
+    if (b.hashExpr) {
+      try { hash = await evaluate(b.hashExpr); }
+      catch (e) { console.log(`  beat ${b.name}: hashExpr failed (${e.message}) — using ${hash}`); }
+    }
     const info = await evaluate(`(() => {
-      if (${esc(b.hash)} !== location.hash) location.hash = ${esc(b.hash)};
+      if (${esc(hash)} !== location.hash) location.hash = ${esc(hash)};
       document.documentElement.setAttribute("data-theme", ${esc(b.theme)});
       const xf = window.__hermes_xf;
       if (xf) {
@@ -257,14 +319,32 @@ try {
       return { hasEngine: !!xf, hash: location.hash,
                theme: document.documentElement.getAttribute("data-theme") };
     })()`);
+    // Views are lazy chunks, so a fixed pause captured the "Loading view…"
+    // fallback on the slower routes. Wait for the route to actually mount
+    // (caption last, so the band is never sitting on a spinner), and remember
+    // any beat that never mounted — the run fails rather than shipping it.
+    let view = null;
+    const readView = () => evaluate(`(() => {
+      const main = document.querySelector("main");
+      const text = (main?.innerText ?? "").trim();
+      return { hash: location.hash, text: text.length,
+               loading: /Loading view/.test(text) };
+    })()`);
+    for (let i = 0; i < 48; i++) {
+      view = await readView().catch(() => null);
+      if (view && !view.loading && view.text > 60) break;
+      await sleep(250);
+    }
+    if (!view || view.loading || view.text <= 60) stuck.push(`${b.name} (${hash})`);
     await drawCaption(b);
     // half the hold, re-pin the clock, the other half — exactly like demo 1,
     // because sim time keeps walking on any page where the canvas survives
     await sleep(Math.round(b.hold / 2));
     await evaluate(`(() => { const xf = window.__hermes_xf; if (xf) xf.clock = ${b.clock}; })()`).catch(() => {});
     await sleep(Math.round(b.hold / 2));
-    const before = frames.length;
-    console.log(`  beat ${b.name.padEnd(13)} engine=${info.hasEngine ? "y" : "n"} theme=${String(info.theme).padEnd(5)} ${String(frames.length - before).padStart(3)} frames (+${JSON.stringify(b.cap?.title ?? b.big?.title ?? "—")})`);
+    console.log(`  beat ${b.name.padEnd(14)} engine=${info.hasEngine ? "y" : "n"} theme=${String(info.theme).padEnd(5)} chars=${String(view.text).padStart(5)} ${view.hash.padEnd(26)} ${String(frames.length - before).padStart(3)} frames (+${JSON.stringify(b.cap?.title ?? b.big?.title ?? "—")})`);
+    if (view.loading) console.log(`    ! ${b.name} still showed the Loading fallback at capture time`);
+    if (b.cap && view.text < 120) console.log(`    ! ${b.name} rendered only ${view.text} chars of text`);
   }
 
   await sleep(600);
@@ -272,6 +352,9 @@ try {
 
   console.log(`\ncaptured ${frames.length} frames in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   if (!frames.length) throw new Error("screencast produced no frames");
+  // No mp4 out of a run whose beats never mounted: a demo that shows a spinner
+  // where a page should be is worse than no demo.
+  if (stuck.length) throw new Error(`views never mounted: ${stuck.join(", ")}`);
 
   const list = [];
   for (let i = 0; i < frames.length; i++) {
