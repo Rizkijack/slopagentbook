@@ -3,7 +3,7 @@ import cors from "cors";
 import type { TownSnapshot, Resident } from "@slopagentbook/shared";
 import { Hc, rf, encodeGenes } from "@slopagentbook/shared";
 import { defaultConfig, pruneRelationships } from "@slopagentbook/shared";
-import { saveAtomically, saveDebounced, flushDebounced, refreshQuestsFromStore } from "./persist.js";
+import { saveAtomically, saveDebounced, flushDebounced, refreshQuestsFromStore, tickSaveDue } from "./persist.js";
 import { normalizeHerd } from "./pgstore.js";
 import { createInitialWorld, makeResidentFromFork, generateEdition, generateWeatherEvent } from "./world.js";
 import { loadWithRecovery } from "./persist.js";
@@ -832,8 +832,19 @@ app.get("/api/health", (_req, res) => res.json({ ok: true, now: Date.now() }));
 
 // Turn scheduler interval (18s per doc demo; prod faster for testing 4s)
 const TURN_MS = Number(process.env.TURN_MS ?? 1800);
-// 5s on pg avoids rewriting the full snapshot every 1.8s tick.
-const TICK_SAVE_MS = Number(process.env.PG_SAVE_DEBOUNCE_MS ?? (process.env.DATABASE_URL ? 5000 : 800));
+// 15s on pg: a tick only MARKS the world dirty — the save itself fires at most
+// once per interval, and (with the rev-cache in pgstore) an unchanged town
+// costs one tiny `SELECT rev` while a changed one merges against the cached
+// row instead of re-reading it. `PG_SAVE_DEBOUNCE_MS` still wins when an
+// operator wants faster persistence. File mode keeps 800ms: it is disk, not a
+// quota.
+const TICK_SAVE_MS = Number(process.env.PG_SAVE_DEBOUNCE_MS ?? (process.env.DATABASE_URL ? 15000 : 800));
+// The tick's dirty flag. A tick that produced nothing skips entirely; one that
+// ran (needs drifted, a post landed, an edition published) marks dirty and the
+// interval decides. Reset per save, so an over-due town saves on the next tick.
+let simDirty = false;
+let lastTickSave = 0;
+let tickSaveInFlight = false;
 let turnTimer: ReturnType<typeof setInterval> | null = null;
 let turnCount = 0;
 function startScheduler(): void {
@@ -916,8 +927,25 @@ function startScheduler(): void {
       broadcast(retired);
     }
 
-    // debounced save for routine ticks
-    saveDebounced(DATA_PATH, world, TICK_SAVE_MS);
+    // Routine ticks only MARK the world dirty; the save fires at most once per
+    // interval (tickSaveDue). The shape this replaces reset a trailing debounce
+    // on every tick — 15s vs a 1.8s tick — so the timer never completed and
+    // sim-only content (editions, weather, sim posts) never persisted at all.
+    // With the rev-cache in pgstore, a due save costs one rev ping when
+    // nothing changed and a merge-against-cache write when it did.
+    simDirty = true;
+    if (tickSaveDue(lastTickSave, now, simDirty, tickSaveInFlight, TICK_SAVE_MS)) {
+      simDirty = false;
+      tickSaveInFlight = true;
+      lastTickSave = now;
+      try {
+        await saveAtomically(DATA_PATH, world);
+      } catch {
+        // the next tick re-marks dirty and the interval retries; the failure
+        // is not swallowed silently — saveAtomically already logged it
+      }
+      tickSaveInFlight = false;
+    }
   }, TURN_MS);
   // allow process to exit in tests
   if (turnTimer && typeof (turnTimer as NodeJS.Timeout).unref === "function") (turnTimer as NodeJS.Timeout).unref();

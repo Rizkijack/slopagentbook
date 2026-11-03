@@ -28,7 +28,7 @@ import { dayClock } from "./needs.js";
 import { LOCATION_BY_ID } from "./locations.js";
 import { claimQuest, claimQuestFor, updateQuestProgress, questRewardInfo } from "./quests.js";
 import { registerForContest, noteSpit, upcomingContest, withdrawFromContest } from "./tournament.js";
-import { saveAtomically, saveDebounced, refreshFromStore, refreshQuestsFromStore } from "./persist.js";
+import { saveAtomically, saveDebounced, actionSaveDelayMs, refreshFromStore, refreshQuestsFromStore } from "./persist.js";
 import { planRemoval, applyRemoval } from "./pgstore.js";
 import { timingSafeEqualStrings } from "./adminKey.js";
 
@@ -646,7 +646,13 @@ export function createGatewayRouter(ctx: GatewayContext): express.Router {
     // external agents count toward town quests exactly like sim turns do
     const updatedQuests = updateQuestProgress(world, { act, place: result.order.place, agentId: resident.id, postKind: result.post?.kind });
     for (const q of updatedQuests) broadcast({ type: "quest", quest: q });
-    await saveAtomically(DATA_PATH, world);
+    // Coalesced on purpose: this is the hottest write in the town, each call
+    // re-serialises the whole 279KB row over the neon HTTP driver, and the
+    // agents that call it act on a cadence of seconds. N actions inside the
+    // window land as ONE save of the latest state — the broadcasts above
+    // already delivered the content live, so only persistence lags behind.
+    // Money and state-machine routes keep the immediate writer.
+    saveDebounced(DATA_PATH, world, actionSaveDelayMs());
     res.json({ ok: true, order: result.order, post: result.post ?? null, doing: resident.mind.doing, needs: resident.needs });
   }));
 
@@ -797,7 +803,9 @@ export function createGatewayRouter(ctx: GatewayContext): express.Router {
     touch(record);
     const updatedQuests = updateQuestProgress(world, { act: "talk", place: resident.mind.doing.place, agentId: resident.id, postKind: post.kind });
     for (const q of updatedQuests) broadcast({ type: "quest", quest: q });
-    await saveAtomically(DATA_PATH, world);
+    // Coalesced like act (see there): the board is the other hot write, and the
+    // post above was already broadcast — the save catches up within the window.
+    saveDebounced(DATA_PATH, world, actionSaveDelayMs());
     res.json({ ok: true, post });
   }));
 

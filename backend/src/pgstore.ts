@@ -702,7 +702,99 @@ export function applyRemoval(
 /** How many times a save re-reads and re-merges when another writer wins the race. */
 const SAVE_RETRIES = 4;
 
+/**
+ * `rev` is a `bigint` column, and over the neon HTTP driver int8 comes back as
+ * a STRING — the bundled pg-types parser for OID 20 is `parseBigInteger`, which
+ * keeps the digits as text. The old coercion (`typeof rev === "number" ? rev : 0`)
+ * therefore read every production row as rev 0: the compare-and-swap lost on
+ * every save, each save burned SAVE_RETRIES full-row reads plus losing
+ * transactions, and only the final fallback upsert ever landed. The data stayed
+ * correct the whole time — the fallback is a proper merge — which is exactly why
+ * a ~5x bandwidth multiplier hid on a free-tier quota for months.
+ *
+ * Accept both wirings: number (tests, some drivers) and digit string (neon 1.2).
+ */
+function revNumber(value: unknown): number {
+  if (typeof value === "number") return value;
+  if (typeof value === "string" && /^\s*\d+\s*$/.test(value)) return parseInt(value, 10);
+  return 0;
+}
+
+/**
+ * Content key of a snapshot: the parsed object with the top-level `now` clock
+ * removed, stringified. JSONB round-trips re-order nothing here — parse then
+ * stringify is deterministic for a given content — so this is an equality test
+ * on the town's CONTENT, not its serialization. `now` is excluded because it is
+ * a wall clock every tick stamps regardless of whether anything changed; without
+ * that exclusion every save would look changed and the skip below never fire.
+ */
+function contentKey(value: unknown): string {
+  let asJson = value;
+  if (typeof value === "string") {
+    try { asJson = JSON.parse(value); } catch { return value; }
+  }
+  if (asJson && typeof asJson === "object") {
+    const copy = { ...(asJson as Record<string, unknown>) };
+    delete copy.now;
+    return JSON.stringify(copy);
+  }
+  return JSON.stringify(asJson);
+}
+
+/**
+ * What this process last confirmed the row to hold: the rev it saw and the
+ * canonical content we either wrote or read at that rev. If rev still matches,
+ * the row is EXACTLY this content (every writer bumps rev), so a save whose
+ * content key is unchanged can be answered with one tiny `SELECT rev` and, when
+ * our copy is dirty, a merge against the cached content instead of a full-row
+ * read. Any rev other than the cached one drops the cache and takes the old
+ * full read-merge-write path — the fast path only ever bypasses work, never a
+ * merge against a foreign write.
+ */
+const storeCache = new Map<string, { rev: number; merged: string }>();
+
+/** Test hook: any save made with a stale fake row must not leak across tests. */
+export function clearStoreCache(): void {
+  storeCache.delete(TOWN_ROW_ID);
+}
+
 export async function pgSave(sql: PgSql, snapshot: unknown): Promise<void> {
+  const cached = storeCache.get(TOWN_ROW_ID);
+  if (cached) {
+    // One small query instead of a full-row read. rev moving on proves only
+    // that SOMEONE else wrote; dropping the cache sends us down the exact path
+    // that was already proven against concurrent writers.
+    const rows = await sql`SELECT rev FROM town_state WHERE id = ${TOWN_ROW_ID}`;
+    const storedRev = rows.length > 0 ? revNumber(rows[0]!.rev) : Number.NaN;
+    if (storedRev === cached.rev) {
+      const myKey = contentKey(snapshot);
+      if (myKey === contentKey(cached.merged)) return;
+      const stored = JSON.parse(cached.merged);
+      const mergedText = JSON.stringify(mergeSnapshots(stored, snapshot));
+      if (contentKey(mergedText) === myKey) {
+        // Only the difference was `now`: the row already IS this content, so a
+        // write would bump rev for pure wall-clock noise. Cache keeps its rev —
+        // the row did not move.
+        return;
+      }
+      const rev = cached.rev;
+      const merged = mergedText;
+      const result = await sql.transaction([
+        sql`SELECT pg_advisory_xact_lock(${TOWN_LOCK_KEY}::bigint)`,
+        sql`
+          UPDATE town_state SET snapshot = ${merged}::jsonb, updated_at = now(), rev = ${rev} + 1
+          WHERE id = ${TOWN_ROW_ID} AND rev = ${rev}
+          RETURNING rev`,
+      ]);
+      const updated = result[1] ?? [];
+      if (updated.length > 0) {
+        storeCache.set(TOWN_ROW_ID, { rev: revNumber(updated[0]!.rev), merged: merged });
+        return;
+      }
+      // Lost the CAS: fall through to the full path, which re-reads everything.
+    }
+    storeCache.delete(TOWN_ROW_ID);
+  }
   for (let attempt = 0; attempt <= SAVE_RETRIES; attempt++) {
     // Read the row as it is NOW. This is a plain query, not part of a
     // transaction: the array form of neon().transaction() cannot feed a query's
@@ -716,17 +808,19 @@ export async function pgSave(sql: PgSql, snapshot: unknown): Promise<void> {
       // No row yet — first boot. A concurrent creator may beat us; the
       // ON CONFLICT DO UPDATE makes that harmless (we merge into whatever is
       // there rather than clobbering it).
+      const first = JSON.stringify(snapshot);
       await sql`
         INSERT INTO town_state (id, snapshot, updated_at, rev)
-        VALUES (${TOWN_ROW_ID}, ${JSON.stringify(snapshot)}, now(), 1)
+        VALUES (${TOWN_ROW_ID}, ${first}::jsonb, now(), 1)
         ON CONFLICT (id) DO UPDATE
           SET snapshot = EXCLUDED.snapshot, updated_at = now(), rev = town_state.rev + 1`;
+      storeCache.set(TOWN_ROW_ID, { rev: 1, merged: JSON.stringify(JSON.parse(first)) });
       return;
     }
 
-    const stored = parseSnapshot(row.snapshot);
-    const merged = JSON.stringify(mergeSnapshots(stored, snapshot));
-    const seenRev = typeof row.rev === "number" ? row.rev : 0;
+    const stored = JSON.stringify(parseSnapshot(row.snapshot));
+    const merged = JSON.stringify(mergeSnapshots(JSON.parse(stored), snapshot));
+    const seenRev = revNumber(row.rev);
 
     // Compare-and-swap: only write if the row is still at the revision we read.
     // The advisory lock serializes the instances so they queue instead of
@@ -741,7 +835,10 @@ export async function pgSave(sql: PgSql, snapshot: unknown): Promise<void> {
     ]);
 
     const updated = result[1] ?? [];
-    if (updated.length > 0) return;
+    if (updated.length > 0) {
+      storeCache.set(TOWN_ROW_ID, { rev: revNumber(updated[0]!.rev), merged: JSON.stringify(JSON.parse(merged)) });
+      return;
+    }
     // Somebody committed between our read and our write: re-read and re-merge
     // against THEIR result, so their residents survive. This is the whole point
     // — the previous plain upsert had no way to notice.
@@ -749,7 +846,9 @@ export async function pgSave(sql: PgSql, snapshot: unknown): Promise<void> {
 
   // Every attempt lost the race. Fall back to one last read-then-write so the
   // town still persists AND still merges: writing our raw snapshot here would
-  // reintroduce exactly the bug this whole change exists to fix.
+  // reintroduce exactly the bug this whole change exists to fix. The new rev is
+  // not returned here, so the cache is left empty — the next save re-seeds it
+  // via the full path rather than cursing at a stale mirror.
   const rows = await sql`SELECT snapshot FROM town_state WHERE id = ${TOWN_ROW_ID}`;
   const latest = rows.length > 0 ? parseSnapshot(rows[0]!.snapshot) : null;
   const payload = JSON.stringify(latest ? mergeSnapshots(latest, snapshot) : snapshot);
@@ -761,9 +860,71 @@ export async function pgSave(sql: PgSql, snapshot: unknown): Promise<void> {
 }
 
 export async function pgLoad(sql: PgQuery): Promise<unknown | null> {
-  const rows = await sql`SELECT snapshot FROM town_state WHERE id = ${TOWN_ROW_ID}`;
+  // `rev` rides along so a successful load also seeds the save cache: without
+  // it the first save after boot would take the full path even when nothing
+  // changed since the row was read.
+  const rows = await sql`SELECT snapshot, rev FROM town_state WHERE id = ${TOWN_ROW_ID}`;
   if (rows.length === 0) return null;
-  return parseSnapshot(rows[0]!.snapshot);
+  const stored = JSON.stringify(parseSnapshot(rows[0]!.snapshot));
+  storeCache.set(TOWN_ROW_ID, { rev: revNumber(rows[0]!.rev), merged: stored });
+  return JSON.parse(stored);
+}
+
+// ---------------------------------------------------------------------------
+// field-narrowed reads
+// ---------------------------------------------------------------------------
+// Both helpers here answer a read that needs only SLICES of the row, and both
+// deliberately leave the save cache untouched: the cache is trusted as the FULL
+// row content (the fast path merges against it and CAS-writes the result), so
+// seeding it from a partial read would make the next save drop every field the
+// read did not fetch. A narrow read simply leaves the cache as it was — a stale
+// cache is detected by its rev and falls back to the full path on its own.
+// ---------------------------------------------------------------------------
+
+/**
+ * Read ONLY the quest board out of the row.
+ *
+ * `pgLoad` pulls the whole snapshot — 279KB measured — and the quest
+ * read-through (`refreshQuestsFromStore`) runs on every `GET /api/quests`, so
+ * the full row was the largest single line item on the Neon data-transfer bill
+ * for a read that consumes 6KB. The `->` extraction keeps the work server-side
+ * and ships only the array.
+ *
+ * The town-ness guard rides in the same query: `jsonb_typeof` answers the two
+ * checks `isTownSnapshot` used to make (the row is an object and carries an
+ * array herd) without shipping anything, so a wrong-shaped row refuses exactly
+ * as before instead of merging as an empty town. `null` = no row or not a
+ * town; an empty array = a town whose quests key is absent.
+ */
+export async function pgLoadQuests(sql: PgQuery): Promise<Rec[] | null> {
+  const rows = await sql`SELECT jsonb_typeof(snapshot) AS kind, jsonb_typeof(snapshot->'herd') AS herd_kind, snapshot->'quests' AS quests FROM town_state WHERE id = ${TOWN_ROW_ID}`;
+  if (rows.length === 0) return null;
+  const row = rows[0]!;
+  if (row.kind !== "object" || row.herd_kind !== "array") return null;
+  return asArr(parseSnapshot(row.quests));
+}
+
+/**
+ * Read ONLY the three fields the auth refresh applies.
+ *
+ * `refreshFromStore` merges agents/herd/tombstones and assigns exactly those —
+ * the rest of the row (feed, editions, ledger) rode along on every auth miss
+ * for nothing. The same jsonb_typeof guard keeps the old refusal contract: a
+ * row that is not a town answers `null` and the live world is left untouched
+ * — by reference, not merely by content.
+ */
+export async function pgLoadAuthFields(
+  sql: PgQuery,
+): Promise<{ agents: Rec[]; herd: Rec[]; tombstones: Rec[] } | null> {
+  const rows = await sql`SELECT jsonb_typeof(snapshot) AS kind, jsonb_typeof(snapshot->'herd') AS herd_kind, snapshot->'agents' AS agents, snapshot->'herd' AS herd, snapshot->'tombstones' AS tombstones FROM town_state WHERE id = ${TOWN_ROW_ID}`;
+  if (rows.length === 0) return null;
+  const row = rows[0]!;
+  if (row.kind !== "object" || row.herd_kind !== "array") return null;
+  return {
+    agents: asArr(parseSnapshot(row.agents)),
+    herd: asArr(parseSnapshot(row.herd)),
+    tombstones: asArr(parseSnapshot(row.tombstones)),
+  };
 }
 
 /** JSONB comes back parsed over HTTP, but a string is legal — handle both. */

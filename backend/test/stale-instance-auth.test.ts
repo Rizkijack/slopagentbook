@@ -41,6 +41,34 @@ vi.mock("@neondatabase/serverless", () => ({
     const exec = async (strings: TemplateStringsArray, ..._values: unknown[]) => {
       const text = strings.join("?");
       stmts.push(text);
+      // The auth refresh reads FIELD-NARROWED slices now (agents/herd/
+      // tombstones; quests for the board) — the full row no longer crosses the
+      // wire for a reload, so the stub answers the shapes the refresh asks for,
+      // jsonb_typeof guard included.
+      if (/snapshot->'quests' AS quests FROM town_state/i.test(text)) {
+        if (!row) return [];
+        const parsed = (row.snapshot ?? {}) as Record<string, unknown>;
+        return [
+          {
+            kind: typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? "object" : "other",
+            herd_kind: Array.isArray(parsed.herd) ? "array" : "other",
+            quests: parsed.quests ?? null,
+          },
+        ];
+      }
+      if (/snapshot->'tombstones' AS tombstones FROM town_state/i.test(text)) {
+        if (!row) return [];
+        const parsed = (row.snapshot ?? {}) as Record<string, unknown>;
+        return [
+          {
+            kind: typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? "object" : "other",
+            herd_kind: Array.isArray(parsed.herd) ? "array" : "other",
+            agents: parsed.agents ?? null,
+            herd: parsed.herd ?? null,
+            tombstones: parsed.tombstones ?? null,
+          },
+        ];
+      }
       if (/SELECT snapshot(?:, rev)? FROM town_state/i.test(text)) {
         return row ? [{ snapshot: row.snapshot, rev: row.rev }] : [];
       }
@@ -119,7 +147,7 @@ describe("stale instance auth", () => {
     // the reload merged the row into memory, it did not bypass the lookup
     expect(stale.agents?.some((a) => a.id === joined.agentId)).toBe(true);
     expect(stale.herd.some((h) => h.id === joined.residentId)).toBe(true);
-    expect(stmts.some((s) => /SELECT snapshot/i.test(s))).toBe(true);
+    expect(stmts.some((s) => /SELECT jsonb_typeof/i.test(s))).toBe(true);
   });
 
   it("still 401s a token the store never recorded", async () => {

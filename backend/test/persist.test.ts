@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { saveAtomically, loadWithRecovery, refreshQuestsFromStore } from "../src/persist.js";
+import { saveAtomically, saveDebounced, loadWithRecovery, refreshQuestsFromStore, tickSaveDue } from "../src/persist.js";
 import { existsSync, rmSync } from "fs";
 import path from "path";
 import os from "os";
@@ -112,7 +112,20 @@ describe("refreshQuestsFromStore — the board's read-through", () => {
   /** A client modelled like the persist.test.ts mock, but whose SELECT returns a row. */
   function rowDb(rowSnapshot: unknown): void {
     vi.mocked(neon).mockImplementation(() => {
-      const exec = (async () => rowSnapshot === null ? [] : [{ snapshot: rowSnapshot }]) as never;
+      // refreshQuestsFromStore reads the NARROWED columns (`jsonb_typeof` guard
+      // plus `snapshot->'quests'`) — not the full row. The guard columns are
+      // what makes a wrong-shaped row refuse instead of merging as empty.
+      const parsed = (rowSnapshot ?? {}) as Record<string, unknown>;
+      const exec = (async () =>
+        rowSnapshot === null
+          ? []
+          : [
+              {
+                kind: typeof parsed === "object" && !Array.isArray(parsed) ? "object" : "other",
+                herd_kind: Array.isArray(parsed.herd) ? "array" : "other",
+                quests: parsed.quests ?? null,
+              },
+            ]) as never;
       return Object.assign(exec as object, {
         transaction: async <T,>(queries: unknown[]): Promise<T> => {
           if (!Array.isArray(queries)) throw new Error("transaction() expects an array of queries");
@@ -157,10 +170,90 @@ describe("refreshQuestsFromStore — the board's read-through", () => {
   });
 
   it("a storage failure serves memory, the previous behaviour, not a 500", async () => {
-    rowDb(null); // empty row → pgLoad returns null → loadWithRecovery throws
+    rowDb(null); // empty row → pgLoadQuests returns null → honest "not reloaded"
     const world = { quests: [{ id: "q1" }] } as never;
     const ok = await refreshQuestsFromStore(neverPath, world);
     expect(ok).toBe(false);
     expect((world as unknown as { quests: unknown[] }).quests).toHaveLength(1);
+  });
+});
+
+describe("hot-save coalescing (act/say)", () => {
+  const pgDir = path.join(os.tmpdir(), "agentbook-pg-coalesce-" + Date.now());
+  const neverPath = path.join(pgDir, "never.json");
+  let prevDbUrl: string | undefined;
+
+  beforeEach(() => {
+    prevDbUrl = process.env.DATABASE_URL;
+    process.env.DATABASE_URL = "postgres://test";
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    if (prevDbUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = prevDbUrl;
+    try { rmSync(pgDir, { recursive: true, force: true }); } catch {}
+  });
+
+  it("N debounced saves inside the window land as ONE pg save of the latest state", async () => {
+    // one neon() per saveAtomically, so the call count IS the save count —
+    // three hot writes inside the window must cost the town one round trip,
+    // not three
+    vi.mocked(neon).mockImplementation(() => {
+      const exec = (async () => [] as Record<string, unknown>[]) as never;
+      return Object.assign(exec as object, {
+        transaction: async <T,>(queries: unknown[]): Promise<T> => [] as T,
+      }) as never;
+    });
+    vi.useFakeTimers();
+    try {
+      saveDebounced(neverPath, { herd: [{ id: "a" }] }, 50);
+      saveDebounced(neverPath, { herd: [{ id: "b" }] }, 50);
+      saveDebounced(neverPath, { herd: [{ id: "c" }] }, 50);
+      await vi.advanceTimersByTimeAsync(60);
+      expect(vi.mocked(neon)).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a save inside the window is the LATEST data, not the first caller's", async () => {
+    let written: unknown = null;
+    vi.mocked(neon).mockImplementation(() => {
+      const exec = (async (strings?: TemplateStringsArray, ...values: unknown[]) => {
+        const text = strings ? strings.join("?") : "";
+        if (/INSERT INTO town_state/i.test(text)) written = JSON.parse(String(values[1]));
+        return [] as Record<string, unknown>[];
+      }) as never;
+      return Object.assign(exec as object, {
+        transaction: async <T,>(queries: unknown[]): Promise<T> => [] as T,
+      }) as never;
+    });
+    vi.useFakeTimers();
+    try {
+      saveDebounced(neverPath, { herd: [{ id: "first" }] }, 50);
+      saveDebounced(neverPath, { herd: [{ id: "latest" }] }, 50);
+      await vi.advanceTimersByTimeAsync(60);
+      expect((written as { herd: Array<{ id: string }> }).herd[0]!.id).toBe("latest");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("tickSaveDue — the cadence rule", () => {
+  it("is due only when dirty, idle, and past the interval", () => {
+    const interval = 15_000;
+    const now = 100_000;
+    // never saved: due the moment the town is dirty
+    expect(tickSaveDue(0, now, true, false, interval)).toBe(true);
+    // clean town: nothing to write, no ping
+    expect(tickSaveDue(0, now, false, false, interval)).toBe(false);
+    // inside the interval: wait
+    expect(tickSaveDue(now - 1_000, now, true, false, interval)).toBe(false);
+    // past the interval: due
+    expect(tickSaveDue(now - interval, now, true, false, interval)).toBe(true);
+    // a save still in flight: the next tick re-marks dirty instead
+    expect(tickSaveDue(now - interval, now, true, true, interval)).toBe(false);
   });
 });

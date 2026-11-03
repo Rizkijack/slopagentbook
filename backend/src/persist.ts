@@ -5,7 +5,7 @@ import { existsSync } from "fs";
 import { dirname } from "path";
 import { neon } from "@neondatabase/serverless";
 import type { TownSnapshot } from "@slopagentbook/shared";
-import { pgLoad, pgSave, mergeSnapshots, mergeQuests, type PgSql } from "./pgstore.js";
+import { pgLoad, pgSave, pgLoadQuests, pgLoadAuthFields, mergeSnapshots, mergeQuests, type PgSql } from "./pgstore.js";
 
 /**
  * A Neon client for the current DATABASE_URL.
@@ -122,6 +122,43 @@ export function flushDebounced(): Promise<void> | null {
     return saveAtomically(pendingPath, pendingData);
   }
   return null;
+}
+
+/**
+ * Debounce window for the HOT gateway writes (`act`, `say`).
+ *
+ * Each of those saves the whole 279KB row over the neon HTTP driver, and the
+ * agents that call them act on a cadence of seconds — one full-row round trip
+ * per action was the single largest item on the Neon transfer bill. N actions
+ * inside the window now land as ONE save of the latest state; the SSE
+ * broadcasts already delivered the content live, so only persistence lags.
+ * Money and state-machine routes keep `saveAtomically` — they are rare and
+ * their durability matters more than their bandwidth.
+ *
+ * 5s on pg; file mode keeps 800ms (disk is not the quota). Tunable with
+ * `PG_ACTION_SAVE_MS`.
+ */
+export function actionSaveDelayMs(): number {
+  if (!process.env.DATABASE_URL) return 800;
+  const raw = Number(process.env.PG_ACTION_SAVE_MS);
+  return Number.isFinite(raw) && raw >= 0 ? raw : 5000;
+}
+
+/**
+ * Whether the tick loop's pending save is due — pure, so the cadence rule is
+ * testable without running the scheduler. A tick only MARKS the world dirty;
+ * the save fires at most once per `intervalMs` and only when something
+ * actually changed since the last one, and never while a previous tick save is
+ * still in flight (the next tick re-marks dirty and the interval retries).
+ */
+export function tickSaveDue(
+  lastTickSave: number,
+  now: number,
+  dirty: boolean,
+  inFlight: boolean,
+  intervalMs: number,
+): boolean {
+  return dirty && !inFlight && now - lastTickSave >= intervalMs;
 }
 
 // ---------------------------------------------------------------------------
@@ -278,9 +315,13 @@ async function reloadQuestsFromStore(path: string, world: TownSnapshot): Promise
   // Snapshot the board AFTER the load resolves: any request interleaving
   // between our start and the row read belongs in `mine`.
   try {
-    const stored = await loadWithRecovery(path);
-    if (!isTownSnapshot(stored)) return false;
-    const mergedQuests = mergeQuests((stored as TownSnapshot).quests, world.quests);
+    // Field-narrowed read: the board consumes ~6KB and the full row is ~279KB,
+    // and this runs on every GET /api/quests — the full row was the largest
+    // single item on the Neon transfer bill. `null` = no row → the same honest
+    // "nothing was reloaded" the old no-data throw produced.
+    const stored = await pgLoadQuests(pgSql());
+    if (stored === null) return false;
+    const mergedQuests = mergeQuests(stored, world.quests);
     world.quests = mergedQuests as unknown as TownSnapshot["quests"];
     return true;
   } catch (e) {
@@ -291,33 +332,19 @@ async function reloadQuestsFromStore(path: string, world: TownSnapshot): Promise
   }
 }
 
-/**
- * Whether a stored row is a town at all.
- *
- * Deliberately LOOSER than the boot guard in server.ts, which requires both an
- * array `herd` and a `config`. `herd` is the one field the merge cannot invent:
- * without it there is no town to merge, and `Object.assign`ing a merged object
- * built from `{}` would leave this instance with an empty half-town. `config` is
- * deliberately not required here because this reload never applies `config` (see
- * `reloadFromStore`), so a row missing it costs nothing — whereas requiring it
- * would refuse to refresh a row this path could have used safely.
- *
- * `{}`, `0`, `[]`, `null` and a JSON string are all refused, so a wrong-shaped
- * row leaves the live world alone.
- */
-function isTownSnapshot(value: unknown): value is TownSnapshot {
-  return (
-    !!value &&
-    typeof value === "object" &&
-    !Array.isArray(value) &&
-    Array.isArray((value as { herd?: unknown }).herd)
-  );
-}
-
 async function reloadFromStore(path: string, world: TownSnapshot): Promise<boolean> {
   try {
-    const stored = await loadWithRecovery(path);
-    if (!isTownSnapshot(stored)) return false;
+    // Field-narrowed read: auth applies only agents/herd/tombstones, so the
+    // other ~170KB of the row (feed, editions, ledger) no longer rides along
+    // on every auth miss. pgLoadAuthFields answers `null` on a missing row —
+    // the same honest "nothing was reloaded" the old no-data throw produced.
+    const fields = await pgLoadAuthFields(pgSql());
+    if (!fields) return false;
+    const stored = {
+      agents: fields.agents,
+      herd: fields.herd,
+      tombstones: fields.tombstones,
+    } as unknown as TownSnapshot;
     const merged = mergeSnapshots(stored, world);
     // Only the three fields AUTH actually reads. This narrowing stays narrow even
     // though the reason it was written has since been fixed: `mergeSnapshots`

@@ -84,6 +84,36 @@ vi.mock("@neondatabase/serverless", () => ({
     const exec = async (strings: TemplateStringsArray, ..._values: unknown[]) => {
       const text = strings.join("?");
       stmts.push(text);
+      // Field-narrowed reads (agents/herd/tombstones for auth, quests for the
+      // board) — the reload no longer pulls the full row across the wire, so
+      // the stub answers the slices from the same authoritative row, guard
+      // columns included.
+      if (/snapshot->'quests' AS quests FROM town_state/i.test(text)) {
+        if (readGate) await readGate;
+        if (!row) return [];
+        const parsed = (row.snapshot ?? {}) as Record<string, unknown>;
+        return [
+          {
+            kind: typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? "object" : "other",
+            herd_kind: Array.isArray(parsed.herd) ? "array" : "other",
+            quests: parsed.quests ?? null,
+          },
+        ];
+      }
+      if (/snapshot->'tombstones' AS tombstones FROM town_state/i.test(text)) {
+        if (readGate) await readGate;
+        if (!row) return [];
+        const parsed = (row.snapshot ?? {}) as Record<string, unknown>;
+        return [
+          {
+            kind: typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? "object" : "other",
+            herd_kind: Array.isArray(parsed.herd) ? "array" : "other",
+            agents: parsed.agents ?? null,
+            herd: parsed.herd ?? null,
+            tombstones: parsed.tombstones ?? null,
+          },
+        ];
+      }
       if (/SELECT snapshot(?:, rev)? FROM town_state/i.test(text)) {
         // hold the read open so concurrent callers really do overlap
         if (readGate) await readGate;
@@ -434,7 +464,7 @@ describe("stale instance auth — BRAWL rail", () => {
     expect(res.status).toBe(401);
     expect(res.body).toEqual({ error: "unauthorized" });
     // the reload happened, and it still refused: the tombstone was honoured
-    expect(stmts.some((s) => /SELECT snapshot/i.test(s))).toBe(true);
+    expect(stmts.some((s) => /SELECT jsonb_typeof/i.test(s))).toBe(true);
     expect(stale.agents?.some((a) => a.id === joined.agentId)).toBe(false);
     expect(stale.herd.some((h) => h.id === joined.residentId)).toBe(false);
   });
@@ -497,7 +527,7 @@ describe("stale instance auth — reload safety", () => {
       expect(res.status).toBe(401);
     }
 
-    expect(stmts.filter((s) => /SELECT snapshot/i.test(s)).length).toBeLessThanOrEqual(1);
+    expect(stmts.filter((s) => /SELECT jsonb_typeof/i.test(s)).length).toBeLessThanOrEqual(1);
   });
 
   it("collapses genuinely concurrent misses into one read, and every joiner gets the merge", async () => {
@@ -510,14 +540,14 @@ describe("stale instance auth — reload safety", () => {
       Array.from({ length: 8 }, () => request(app).get("/api/agent/me").set(bearer(joined.token))),
     );
     await vi.waitFor(() => {
-      expect(stmts.filter((s) => /SELECT snapshot/i.test(s)).length).toBe(1);
+      expect(stmts.filter((s) => /SELECT jsonb_typeof/i.test(s)).length).toBe(1);
     });
     releaseRead!();
 
     const results = await inflight;
     // one read, and every joiner authenticated against the merged world rather
     // than being refused by the cooldown while the read was still running
-    expect(stmts.filter((s) => /SELECT snapshot/i.test(s)).length).toBe(1);
+    expect(stmts.filter((s) => /SELECT jsonb_typeof/i.test(s)).length).toBe(1);
     expect(results.every((r) => r.status === 200)).toBe(true);
     expect(results.every((r) => r.body.resident?.id === joined.residentId)).toBe(true);
   });
@@ -573,7 +603,7 @@ describe("stale instance auth — reload safety", () => {
     const res = await request(app).post("/api/brawl/vaults").set(bearer(joined.token)).send({});
 
     expect(res.status).toBe(200); // the reload really did run
-    expect(stmts.some((s) => /SELECT snapshot/i.test(s))).toBe(true);
+    expect(stmts.some((s) => /SELECT jsonb_typeof/i.test(s))).toBe(true);
     // by id, because the request itself appends the vault it just created
     const has = (list: unknown, id: string) =>
       (Array.isArray(list) ? list : []).some((x) => (x as { id?: unknown })?.id === id);
