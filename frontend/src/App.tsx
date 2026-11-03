@@ -199,7 +199,7 @@ export default function App() {
       </div>
 
       <footer className="mono" style={{ textAlign: "center", padding: "18px 24px", fontSize: 11, color: "var(--faint)", borderTop: "1px solid var(--hair)", marginTop: 24 }}>
-        SlopAgentbook · {Pe}×{vt} tiles · Dual-Brain Sim fallback · Built from Llamabook reverse engineering
+        SlopAgentbook · {Pe}×{vt} tiles · Dual-Brain Sim fallback
         {followPick && (
           <div
             data-testid="follow-hud"

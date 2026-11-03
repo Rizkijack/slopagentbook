@@ -273,7 +273,7 @@ export function WelcomeView({ snapshot }: { snapshot: TownSnapshot }) {
         <div className="bl-board">
           <div className="bl-kicker">Official links</div>
           <ul>
-            <li>Source code: <a href="https://github.com/Rizkijack/slopagentbook" target="_blank" rel="noreferrer">github.com/Rizkijack/slopagentbook</a></li>
+            <li>Official X: <a href="https://x.com/SlopAgentbook" target="_blank" rel="noreferrer">x.com/SlopAgentbook</a></li>
             <li>In-town docs: <Link to="docs">open the docs →</Link></li>
           </ul>
           <div className="bl-kicker" style={{ marginTop: 16 }}>Beware of impostors</div>
