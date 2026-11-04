@@ -15,6 +15,13 @@ stored.herd[0]!.name = "Stored One";
 // carries its stamp. Without it this fixture would be trimmed back to 20 and
 // would hide the padding bug instead of exposing it.
 (stored.config as unknown as Record<string, unknown>).herdReduced20261030 = "v2";
+// Two more copies of the seeded faction, as the pre-fix cold-start bug left
+// them in production: same name, different ids.
+const seededFaction = stored.factions[0]!;
+stored.factions.push(
+  { ...seededFaction, id: "faction-dup-1" },
+  { ...seededFaction, id: "faction-dup-2" },
+);
 
 vi.mock("@neondatabase/serverless", () => ({
   neon: vi.fn(() => {
@@ -53,6 +60,11 @@ describe("boot reads the database when the scratch file is absent", () => {
     // padding belongs to a FRESH boot only — otherwise every cold start would
     // add strangers to a saved town.
     expect(world.herd.length).toBeLessThan(58);
+  });
+
+  it("collapses duplicate factions at boot", () => {
+    expect(world.factions).toHaveLength(1);
+    expect(world.factions[0]!.name).toBe(seededFaction.name);
   });
 });
 

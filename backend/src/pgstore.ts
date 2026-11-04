@@ -223,6 +223,32 @@ function asStrings(value: unknown): string[] {
 }
 
 /**
+ * Factions are seeded lore, unique by name, and the only writer that ever adds
+ * one is `createInitialWorld`. The pre-fix cold-start bug seeded a new
+ * random-id faction on every boot, and `unionBy(id)` faithfully kept all of
+ * them — the live row reached 177 identical "the board people" entries.
+ *
+ * Name is the honest identity. Duplicates collapse to the copy with the most
+ * live members (ties keep the stored side, so instances converge), and member
+ * ids that are no longer in the herd are dropped so the dossier has no ghosts.
+ */
+export function dedupeFactions(factions: Rec[], liveIds: Set<string>): Rec[] {
+  const byName = new Map<string, Rec>();
+  for (const faction of factions) {
+    if (!faction || typeof faction !== "object") continue;
+    const name = typeof faction.name === "string" ? faction.name.trim().toLowerCase() : "";
+    const key = name || keyOf(faction, `faction${byName.size}`);
+    const members = asStrings(faction.members).filter((id) => liveIds.has(id));
+    const candidate = { ...faction, members };
+    const existing = byName.get(key);
+    if (!existing || members.length > asStrings(existing.members).length) {
+      byName.set(key, candidate);
+    }
+  }
+  return [...byName.values()];
+}
+
+/**
  * CALLERS rule — recency decides the record, `followers` unions inside it.
  *
  * `followers` is a grow-only set (nobody is ever un-followed), so overwriting it
@@ -502,6 +528,9 @@ export function mergeSnapshots(stored: unknown, mine: unknown): Rec {
     deadResidents,
   ).map((c) => pruneFollowers(c, deadResidents));
 
+  const settledHerd = capHerd(herd, maxHerd);
+  const liveHerdIds = new Set(settledHerd.map((r) => String(r.id)));
+
   return {
     // fields this code does not know about survive the round trip
     ...a,
@@ -509,7 +538,7 @@ export function mergeSnapshots(stored: unknown, mine: unknown): Rec {
     config: b.config ?? a.config,
     // dedupe first, then cap: dropping a duplicate frees a slot for a resident
     // that would otherwise be evicted for being merely old
-    herd: capHerd(herd, maxHerd),
+    herd: settledHerd,
     feed: alive(unionBy(asArr(a.feed), asArr(b.feed), (r, i) => keyOf(r, `post${i}`)))
       .sort(byNumber("t", -1))
       .slice(0, 400),
@@ -520,7 +549,7 @@ export function mergeSnapshots(stored: unknown, mine: unknown): Rec {
       .sort(byNumber("no", -1))
       .slice(0, 20),
     projects: unionBy(asArr(a.projects), asArr(b.projects), (r, i) => keyOf(r, `project${i}`)),
-    factions: unionBy(asArr(a.factions), asArr(b.factions), (r, i) => keyOf(r, `faction${i}`)),
+    factions: dedupeFactions([...asArr(a.factions), ...asArr(b.factions)], liveHerdIds),
     // The board is merged only within one GENERATION. A reset stamps a newer
     // `questEpoch` and writes a fresh board; unioning an older board's rows
     // back in would resurrect every claimed id a stale instance still holds,

@@ -492,6 +492,29 @@ describe("mergeSnapshots", () => {
     expect((merged.herd as Snap[])[0]!.job).toBe("smith");
   });
 
+  it("collapses duplicate factions by name and drops member ids no longer in the herd", () => {
+    // Factions are unique by name; the pre-fix cold-start bug seeded a new
+    // random id on every boot and unionBy(id) kept all of them.
+    const stored = snap({
+      herd: [resident("A"), resident("B")],
+      factions: [
+        { id: "f1", name: "the board people", members: ["A", "gone"] },
+        { id: "f2", name: "The Board People ", members: ["B"] },
+        { id: "f3", name: "the board people", members: ["A", "B"] },
+      ],
+    });
+    const mine = snap({
+      herd: [resident("A"), resident("B")],
+      factions: [{ id: "f1", name: "the board people", members: ["A"] }],
+    });
+    const merged = mergeSnapshots(stored, mine) as Snap;
+    const factions = merged.factions as Snap[];
+
+    expect(factions).toHaveLength(1);
+    expect(factions[0]!.id).toBe("f3");
+    expect(factions[0]!.members).toEqual(["A", "B"]);
+  });
+
   it("unions the feed newest-first under the cap", () => {
     const stored = snap({ feed: [post("p1", 100), post("p2", 200)] });
     const mine = snap({ feed: [post("p3", 300)] });

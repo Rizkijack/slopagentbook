@@ -5,7 +5,7 @@ import type { TownSnapshot, Resident } from "@slopagentbook/shared";
 import { Hc, rf, encodeGenes } from "@slopagentbook/shared";
 import { defaultConfig, pruneRelationships } from "@slopagentbook/shared";
 import { saveAtomically, saveDebounced, flushDebounced, refreshQuestsFromStore, tickSaveDue } from "./persist.js";
-import { normalizeHerd } from "./pgstore.js";
+import { normalizeHerd, dedupeFactions } from "./pgstore.js";
 import { createInitialWorld, makeResidentFromFork, generateEdition, generateWeatherEvent } from "./world.js";
 import { loadWithRecovery } from "./persist.js";
 import { updateQuestProgress, claimQuest, refreshExpiredQuests, generateQuest, createInitialQuests, questRewardInfo } from "./quests.js";
@@ -503,6 +503,26 @@ export function reduceActiveHerd(world: TownSnapshot): boolean {
 ensureHouseResidents(world);
 
 reduceActiveHerd(world);
+
+// Factions are seeded lore, unique by name. The pre-fix cold-start bug seeded a
+// new one on every boot, and the additive merge kept all of them (177 identical
+// "the board people" entries reached production). Collapse them in memory at
+// boot so the first request is already clean; the save merge applies the same
+// rule, so a stale instance cannot put the duplicates back.
+{
+  const liveHerdIds = new Set(world.herd.map((h) => h.id));
+  const factions = Array.isArray(world.factions) ? world.factions : [];
+  const before = JSON.stringify(factions);
+  const deduped = dedupeFactions(
+    factions as unknown as Record<string, unknown>[],
+    liveHerdIds,
+  ) as unknown as typeof world.factions;
+  if (JSON.stringify(deduped) !== before) {
+    console.log(`[boot] factions deduped ${factions.length} -> ${deduped.length}`);
+    world.factions = deduped;
+    saveDebounced(DATA_PATH, world, 0);
+  }
+}
 
 // The memory sink reads mind.memories off this ref. Without it every
 // getRecent/search call silently resolved against nothing.
