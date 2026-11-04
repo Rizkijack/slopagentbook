@@ -91,7 +91,9 @@ describe("booting a town whose save still carries the Base chain", () => {
     expect(onDisk.chainName).toBe("Elysium");
     expect(onDisk.network).toBe("mainnet");
     expect(onDisk.rpcUrl).toBe("https://rpc-live.boxa.club");
-  });
+    // The walk below allows 15s; vitest's own 5s default would kill the test
+    // first and report a timeout instead of the assertion it exists for.
+  }, 20_000);
 
   it("does not touch the treasury surface on the way through", async () => {
     // The placeholder is invisible in the UI because `tokenDeployed` is absent,
@@ -102,5 +104,5 @@ describe("booting a town whose save still carries the Base chain", () => {
     expect(onDisk.tokenAddress).toBe("TLJ8QbLnNUxZJJ1dcqF9auUKHrtKd8aNUkscxhSDADj");
     expect("tokenDeployed" in onDisk).toBe(false);
     expect(world.config.tokenAddress).toBe("TLJ8QbLnNUxZJJ1dcqF9auUKHrtKd8aNUkscxhSDADj");
-  });
+  }, 20_000);
 });
