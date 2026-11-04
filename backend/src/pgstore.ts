@@ -391,6 +391,25 @@ export function normalizeHerd(snapshot: unknown): Rec[] {
 }
 
 /**
+ * Quest-board generation of a snapshot; absent means generation 0.
+ *
+ * Kept beside `mergeSnapshots` because it is the field's whole contract: a
+ * higher number REPLACES, equal numbers union, and a save that predates the
+ * field counts as zero so the first reset always outranks it.
+ */
+export function questEpochOf(snapshot: unknown): number {
+  const value = asRec(snapshot).questEpoch;
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function questsForEpoch(a: Rec, b: Rec): Rec[] {
+  const epochA = questEpochOf(a);
+  const epochB = questEpochOf(b);
+  if (epochA === epochB) return mergeQuests(a.quests, b.quests);
+  return asArr(epochB > epochA ? b.quests : a.quests);
+}
+
+/**
  * The town snapshot as it must be written: `stored` (what the row holds now)
  * ∪ `mine` (what this instance believes). Pure, so the lost-update rule is
  * testable without a database.
@@ -502,7 +521,14 @@ export function mergeSnapshots(stored: unknown, mine: unknown): Rec {
       .slice(0, 20),
     projects: unionBy(asArr(a.projects), asArr(b.projects), (r, i) => keyOf(r, `project${i}`)),
     factions: unionBy(asArr(a.factions), asArr(b.factions), (r, i) => keyOf(r, `faction${i}`)),
-    quests: mergeQuests(a.quests, b.quests),
+    // The board is merged only within one GENERATION. A reset stamps a newer
+    // `questEpoch` and writes a fresh board; unioning an older board's rows
+    // back in would resurrect every claimed id a stale instance still holds,
+    // which is the exact failure the tombstone rule exists for elsewhere. So a
+    // different epoch is a wholesale replacement by whichever side is newer,
+    // and equal epochs keep the monotonic union this field has always had.
+    quests: questsForEpoch(a, b),
+    questEpoch: Math.max(questEpochOf(a), questEpochOf(b)),
     contests: unionBy(asArr(a.contests), asArr(b.contests), (r, i) => keyOf(r, `contest${i}`))
       // a dead contestant cannot hold a place: drop them from the roster, their
       // attendance samples and the standings, but keep the contest itself
@@ -896,12 +922,19 @@ export async function pgLoad(sql: PgQuery): Promise<unknown | null> {
  * as before instead of merging as an empty town. `null` = no row or not a
  * town; an empty array = a town whose quests key is absent.
  */
-export async function pgLoadQuests(sql: PgQuery): Promise<Rec[] | null> {
-  const rows = await sql`SELECT jsonb_typeof(snapshot) AS kind, jsonb_typeof(snapshot->'herd') AS herd_kind, snapshot->'quests' AS quests FROM town_state WHERE id = ${TOWN_ROW_ID}`;
+export async function pgLoadQuests(
+  sql: PgQuery,
+): Promise<{ quests: Rec[]; epoch: number } | null> {
+  // `questEpoch` rides along because the board is merged per generation: a
+  // caller that read only the rows could not tell a fresh board from a stale
+  // one, and would union a pre-reset board back into memory.
+  const rows = await sql`SELECT jsonb_typeof(snapshot) AS kind, jsonb_typeof(snapshot->'herd') AS herd_kind, snapshot->'quests' AS quests, COALESCE((snapshot->>'questEpoch')::bigint, 0) AS quest_epoch FROM town_state WHERE id = ${TOWN_ROW_ID}`;
   if (rows.length === 0) return null;
   const row = rows[0]!;
   if (row.kind !== "object" || row.herd_kind !== "array") return null;
-  return asArr(parseSnapshot(row.quests));
+  // bigint arrives as a string over the neon driver — revNumber is the one
+  // place that coercion lives.
+  return { quests: asArr(parseSnapshot(row.quests)), epoch: revNumber(row.quest_epoch) };
 }
 
 /**

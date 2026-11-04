@@ -345,6 +345,17 @@ export interface TownSnapshot {
   projects: Project[];
   factions: Faction[];
   quests: Quest[];
+  /**
+   * Generation of the quest board. A reset stamps `Date.now()` and writes a
+   * fresh board; `mergeSnapshots` drops whichever side carries the older
+   * generation instead of unioning it back. Without this, a stale instance's
+   * in-memory progress resurrects on its next 15s save — the same rule that
+   * made the earlier quest fixes necessary, one level up.
+   *
+   * Optional/additive: a save written before resets existed has no epoch and
+   * is treated as generation 0.
+   */
+  questEpoch?: number;
   /** external agent registry (optional — older saves without it stay valid) */
   agents?: AgentRecord[];
   /**

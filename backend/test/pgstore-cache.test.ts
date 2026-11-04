@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { clearStoreCache, pgLoad, pgLoadQuests, pgLoadAuthFields, pgSave } from "../src/pgstore.js";
+import { clearStoreCache, mergeSnapshots, pgLoad, pgLoadQuests, pgLoadAuthFields, pgSave } from "../src/pgstore.js";
 
 /**
  * The rev-cache fast path, and the int8 wire format.
@@ -31,7 +31,7 @@ function fakeDb(initial?: unknown, state: DbState = { row: initial === undefined
     if (/SELECT rev(?:, snapshot)? FROM town_state/i.test(text)) {
       return state.row ? [{ rev: state.row.rev }] : [];
     }
-    if (/snapshot->'quests' AS quests FROM town_state/i.test(text)) {
+    if (/snapshot->'quests' AS quests/i.test(text)) {
       if (!state.row) return [];
       const parsed = JSON.parse(state.row.snapshot) as Record<string, unknown>;
       return [
@@ -39,6 +39,8 @@ function fakeDb(initial?: unknown, state: DbState = { row: initial === undefined
           kind: typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? "object" : "other",
           herd_kind: Array.isArray(parsed.herd) ? "array" : "other",
           quests: parsed.quests ?? null,
+          // bigint over the neon wire: a digit STRING, like `rev`
+          quest_epoch: String(typeof parsed.questEpoch === "number" ? parsed.questEpoch : 0),
         },
       ];
     }
@@ -200,14 +202,61 @@ describe("cache seeding", () => {
   });
 });
 
+describe("quest-board generations (reset epoch)", () => {
+  it("a newer epoch REPLACES the older board instead of unioning it back", () => {
+    const older = snap({ questEpoch: 100, quests: [{ id: "old1" }, { id: "old2" }] });
+    const newer = snap({ questEpoch: 200, quests: [{ id: "new1" }] });
+
+    // either direction: the newer generation wins wholesale
+    expect((mergeSnapshots(older, newer) as { quests: { id: string }[] }).quests.map((q) => q.id)).toEqual(["new1"]);
+    expect((mergeSnapshots(newer, older) as { quests: { id: string }[] }).quests.map((q) => q.id)).toEqual(["new1"]);
+    // and the epoch travels with the result, so the next save keeps the fence up
+    expect((mergeSnapshots(older, newer) as { questEpoch: number }).questEpoch).toBe(200);
+  });
+
+  it("a save that predates the field is generation 0, so the first reset outranks it", () => {
+    const legacy = snap({ quests: [{ id: "legacy" }] }); // no questEpoch at all
+    const reset = snap({ questEpoch: 1, quests: [{ id: "fresh" }] });
+    expect((mergeSnapshots(legacy, reset) as { quests: { id: string }[] }).quests.map((q) => q.id)).toEqual(["fresh"]);
+    expect((mergeSnapshots(reset, legacy) as { quests: { id: string }[] }).quests.map((q) => q.id)).toEqual(["fresh"]);
+  });
+
+  it("the SAME generation still merges monotonically, exactly as before", () => {
+    const stored = snap({ questEpoch: 7, quests: [{ id: "q1", status: "available" }] });
+    const mine = snap({ questEpoch: 7, quests: [{ id: "q1", status: "claimed" }, { id: "q2", status: "available" }] });
+    const merged = mergeSnapshots(stored, mine) as { quests: { id: string; status: string }[] };
+
+    expect(merged.quests.map((q) => [q.id, q.status])).toEqual([["q1", "claimed"], ["q2", "available"]]);
+  });
+
+  it("a stale instance's save cannot resurrect the board a reset just cleared", async () => {
+    const shared: DbState = { row: null };
+    // both instances descend from a board with claims in progress
+    const stale = fakeDb(snap({ questEpoch: 0, quests: [{ id: "q-old", status: "claimed" }] }), shared);
+    const row = snap({ questEpoch: 0, quests: [{ id: "q-old", status: "claimed" }] });
+    shared.row = { snapshot: JSON.stringify(row), rev: "1" };
+
+    // the owner resets: a newer generation lands on the row
+    const fresh = snap({ questEpoch: 500, quests: [{ id: "q-fresh", status: "available" }] });
+    shared.row = { snapshot: JSON.stringify(fresh), rev: "2" };
+
+    // the stale instance now saves its pre-reset board
+    await pgSave(stale.sql, snap({ questEpoch: 0, quests: [{ id: "q-old", status: "claimed" }] }));
+
+    const persisted = JSON.parse(shared.row!.snapshot) as { quests: { id: string }[]; questEpoch: number };
+    expect(persisted.quests.map((q) => q.id)).toEqual(["q-fresh"]);
+    expect(persisted.questEpoch).toBe(500);
+  });
+});
+
 describe("field-narrowed reads", () => {
-  it("pgLoadQuests ships only the board — and never seeds the save cache", async () => {
+  it("pgLoadQuests ships only the board (+ its generation) — and never seeds the save cache", async () => {
     const db = fakeDb(snap({
       herd: [resident("A")],
       quests: [{ id: "q1" }],
       feed: [{ id: "p1" }],
     }));
-    expect(await pgLoadQuests(db.sql)).toEqual([{ id: "q1" }]);
+    expect(await pgLoadQuests(db.sql)).toEqual({ quests: [{ id: "q1" }], epoch: 0 });
 
     // the read pulled ~one array out of a full row; the cache must stay empty
     // so the next save takes the FULL path — a partial row must never be
@@ -217,9 +266,9 @@ describe("field-narrowed reads", () => {
     expect(db.log.join(" | ")).toMatch(/SELECT snapshot, rev/);
   });
 
-  it("pgLoadQuests: null on a missing row, [] when the key is absent", async () => {
+  it("pgLoadQuests: null on a missing row, empty board when the key is absent", async () => {
     expect(await pgLoadQuests(fakeDb().sql)).toBeNull();
-    expect(await pgLoadQuests(fakeDb(snap({ herd: [] })).sql)).toEqual([]);
+    expect(await pgLoadQuests(fakeDb(snap({ herd: [] })).sql)).toEqual({ quests: [], epoch: 0 });
   });
 
   it("pgLoadAuthFields ships exactly agents/herd/tombstones", async () => {

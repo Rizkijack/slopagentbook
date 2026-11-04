@@ -45,7 +45,7 @@ vi.mock("@neondatabase/serverless", () => ({
       // tombstones; quests for the board) — the full row no longer crosses the
       // wire for a reload, so the stub answers the shapes the refresh asks for,
       // jsonb_typeof guard included.
-      if (/snapshot->'quests' AS quests FROM town_state/i.test(text)) {
+      if (/snapshot->'quests' AS quests/i.test(text)) {
         if (!row) return [];
         const parsed = (row.snapshot ?? {}) as Record<string, unknown>;
         return [
@@ -53,6 +53,7 @@ vi.mock("@neondatabase/serverless", () => ({
             kind: typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? "object" : "other",
             herd_kind: Array.isArray(parsed.herd) ? "array" : "other",
             quests: parsed.quests ?? null,
+            quest_epoch: String(typeof parsed.questEpoch === "number" ? parsed.questEpoch : 0),
           },
         ];
       }

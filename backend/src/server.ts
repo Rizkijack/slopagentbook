@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import crypto from "node:crypto";
 import type { TownSnapshot, Resident } from "@slopagentbook/shared";
 import { Hc, rf, encodeGenes } from "@slopagentbook/shared";
 import { defaultConfig, pruneRelationships } from "@slopagentbook/shared";
@@ -779,6 +780,47 @@ app.post("/api/quests/refresh", async (req, res) => {
     broadcast({ type: "quest", quest: nq });
   }
   res.json({ before, after: world.quests.length, quests: world.quests });
+});
+
+// Owner-only quest reset. This is the one route that deliberately DESTROYS
+// progress, so it does not exist without a credential: `OWNER_KEY` unset means
+// 503 (never an unauthenticated reset — the same rule that keeps vault-halting
+// routes off this app), and a wrong key is 403. The board's generation moves
+// forward with the clock, which is what stops a stale instance's next save from
+// resurrecting the claims this route just cleared (see questEpoch in types).
+const OWNER_KEY_ENV = "OWNER_KEY";
+
+function ownerAuthorized(req: express.Request): boolean {
+  const expected = process.env[OWNER_KEY_ENV]?.trim();
+  if (!expected) return false;
+  const given = String(req.header("x-owner-key") ?? "").trim();
+  const a = Buffer.from(given);
+  const b = Buffer.from(expected);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+app.post("/api/quests/reset", async (req, res) => {
+  if (!process.env[OWNER_KEY_ENV]?.trim()) {
+    res.status(503).json({ error: `quest reset is disabled: ${OWNER_KEY_ENV} is not set` });
+    return;
+  }
+  if (!ownerAuthorized(req)) {
+    res.status(403).json({ error: "forbidden" });
+    return;
+  }
+  const before = world.quests.length;
+  const epoch = Date.now();
+  world.questEpoch = epoch;
+  world.quests = createInitialQuests(world);
+  for (const q of world.quests) broadcast({ type: "quest", quest: q });
+  // The write is awaited, not debounced: a reset that is still in memory when
+  // the instance dies is a reset that silently did nothing.
+  try { await saveAtomically(DATA_PATH, world); } catch (e) {
+    console.error("[quests] reset save failed", e instanceof Error ? e.message : "unknown");
+    res.status(500).json({ error: "reset applied in memory but could not be persisted" });
+    return;
+  }
+  res.json({ ok: true, epoch, before, after: world.quests.length, quests: world.quests });
 });
 
 // External agent gateway (join/resume/me/perceive/act/say/quests/boards)

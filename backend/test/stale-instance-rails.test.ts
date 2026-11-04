@@ -88,7 +88,7 @@ vi.mock("@neondatabase/serverless", () => ({
       // board) — the reload no longer pulls the full row across the wire, so
       // the stub answers the slices from the same authoritative row, guard
       // columns included.
-      if (/snapshot->'quests' AS quests FROM town_state/i.test(text)) {
+      if (/snapshot->'quests' AS quests/i.test(text)) {
         if (readGate) await readGate;
         if (!row) return [];
         const parsed = (row.snapshot ?? {}) as Record<string, unknown>;
@@ -97,6 +97,7 @@ vi.mock("@neondatabase/serverless", () => ({
             kind: typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? "object" : "other",
             herd_kind: Array.isArray(parsed.herd) ? "array" : "other",
             quests: parsed.quests ?? null,
+            quest_epoch: String(typeof parsed.questEpoch === "number" ? parsed.questEpoch : 0),
           },
         ];
       }

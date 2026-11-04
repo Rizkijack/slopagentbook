@@ -321,7 +321,20 @@ async function reloadQuestsFromStore(path: string, world: TownSnapshot): Promise
     // "nothing was reloaded" the old no-data throw produced.
     const stored = await pgLoadQuests(pgSql());
     if (stored === null) return false;
-    const mergedQuests = mergeQuests(stored, world.quests);
+    // The board is generation-scoped: a reset publishes a newer epoch, and
+    // unioning this instance's pre-reset rows into it would resurrect every
+    // claim the reset just cleared. So a newer stored generation REPLACES the
+    // local board wholesale, an older one is ignored (our board is the
+    // authority, and the next save writes it), and only the same generation
+    // gets the monotonic merge this read-through exists for.
+    const mineEpoch = typeof world.questEpoch === "number" ? world.questEpoch : 0;
+    if (stored.epoch > mineEpoch) {
+      world.quests = stored.quests as unknown as TownSnapshot["quests"];
+      world.questEpoch = stored.epoch;
+      return true;
+    }
+    if (stored.epoch < mineEpoch) return false;
+    const mergedQuests = mergeQuests(stored.quests, world.quests);
     world.quests = mergedQuests as unknown as TownSnapshot["quests"];
     return true;
   } catch (e) {
