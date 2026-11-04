@@ -1,3 +1,5 @@
+import { defaultConfig, HERD_CAP_PREVIOUS } from "@slopagentbook/shared";
+
 // Postgres backing for the town snapshot (Vercel: /tmp is ephemeral).
 //
 // The `sql` tag is injected so tests use a stub, never a real database.
@@ -374,6 +376,33 @@ function capHerd(herd: Rec[], maxHerd: number): Rec[] {
   return oldestFirst.slice(herd.length - maxHerd).map((r) => r.row);
 }
 
+/** Every value `maxHerd` has shipped with, plus the current default. */
+const HERD_CAP_DEFAULTS: readonly number[] = [...HERD_CAP_PREVIOUS, defaultConfig.maxHerd];
+
+/**
+ * The cap a save must write when the row and the writer disagree.
+ *
+ * A value in HERD_CAP_DEFAULTS is not intent — it is whatever the code shipped
+ * at that point — so it must never override a hand-set cap. Between two
+ * defaults the newer (higher) wins, because every cap migration so far has
+ * only ever raised. This is what stops a stale instance holding 200 or 2000
+ * from writing `capHerd(herd, 200)` over a row that has grown past it: that
+ * write would evict residents that were never tombstoned, irreversibly.
+ */
+export function settleHerdCap(stored: unknown, mine: unknown): number | undefined {
+  const isCap = (value: unknown): value is number =>
+    typeof value === "number" && Number.isFinite(value);
+  const row = isCap(stored) ? stored : undefined;
+  const writer = isCap(mine) ? mine : undefined;
+  if (row === undefined) return writer; // unreadable row: take the writer's
+  if (writer === undefined) return row; // never strip the row's cap
+  const rowRank = HERD_CAP_DEFAULTS.indexOf(row);
+  const writerRank = HERD_CAP_DEFAULTS.indexOf(writer);
+  if (writerRank === -1) return writer; // hand-set writer wins
+  if (rowRank === -1) return row; // hand-set row is never overridden by a default
+  return HERD_CAP_DEFAULTS[Math.max(rowRank, writerRank)];
+}
+
 /**
  * The name is a resident's identity handle — `who_is` resolves on it, and the
  * join/fork endpoints treat a repeat as a conflict. Two instances can each
@@ -487,14 +516,12 @@ export function mergeSnapshots(stored: unknown, mine: unknown): Rec {
   const storedConfig = asRec(a.config);
   const mineConfig = asRec(b.config);
   const config = { ...asRec(b.config ?? a.config) };
-  // The 200 -> 2000 cap migration must not be undone by an instance that
-  // booted before the deploy and still carries the old default. Exact match on
-  // both sides: a deliberately set cap is never overridden, and this stops
-  // mattering once every instance has booted the new code.
-  if (storedConfig.maxHerd === 2000 && mineConfig.maxHerd === 200) {
-    config.maxHerd = 2000;
-  }
-  const maxHerd = typeof config.maxHerd === "number" ? config.maxHerd : 0;
+  // A stale instance may still carry an older default; settleHerdCap only lets
+  // the cap climb between shipped defaults, and never lets a default override
+  // a hand-set cap.
+  const settledCap = settleHerdCap(storedConfig.maxHerd, mineConfig.maxHerd);
+  if (settledCap !== undefined) config.maxHerd = settledCap;
+  const maxHerd = settledCap ?? 0;
   const herd = dedupeHerdByName(alive(unionBy(asArr(a.herd), asArr(b.herd), (r, i) => keyOf(r, `herd${i}`))));
 
   // ---- BRAWL money ----

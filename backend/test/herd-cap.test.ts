@@ -16,7 +16,7 @@ import { normalizeHerd } from "../src/pgstore.js";
 /**
  * The operator reduction of 2026-10-30: the ACTIVE herd (61 probe-era
  * residents live at the time) is one-shot-reduced to 20, while the herd CAP
- * stays at the default 200 so joins keep pasture. Two properties have to stay
+ * stays at the default so joins keep pasture. Two properties have to stay
  * true after this commit:
  *
  *  - One-shot by marker (`herdReduced20261030` in config), never by state: the
@@ -57,7 +57,7 @@ describe("reduceActiveHerd (one-shot, 2026-10-30)", () => {
     const world = makeWorld(SIXTY_ONE);
     expect(reduceActiveHerd(world)).toBe(true);
     expect(world.herd.length).toBe(20);
-    expect(world.herd.length).toBeLessThanOrEqual(world.config.maxHerd); // cap untouched, stays 200
+    expect(world.herd.length).toBeLessThanOrEqual(world.config.maxHerd); // cap untouched
     const ids = new Set(world.herd.map((h) => (h as { id: string }).id));
     for (const bot of ["house-ledger", "house-hearth", "house-wren"]) {
       expect(ids.has(bot), `house bot ${bot} must survive the reduction`).toBe(true);
@@ -120,27 +120,39 @@ describe("trimToTargetKeepingBots", () => {
   });
 });
 
-describe("applyHerdCapDefault (200 -> 2000)", () => {
-  it("raises the exact old default", () => {
-    const config: Record<string, unknown> = { maxHerd: 200 };
-    expect(applyHerdCapDefault(config)).toBe(true);
-    expect(config.maxHerd).toBe(2000);
+describe("applyHerdCapDefault (previous defaults -> 5000)", () => {
+  it("raises both shipped defaults and is idempotent", () => {
+    for (const previous of [200, 2000]) {
+      const config: Record<string, unknown> = { maxHerd: previous };
+      expect(applyHerdCapDefault(config)).toBe(true);
+      expect(config.maxHerd).toBe(5000);
+      expect(applyHerdCapDefault(config)).toBe(false);
+    }
   });
 
   it("leaves a deliberately set cap alone", () => {
-    for (const cap of [64, 500, 2000, 5000]) {
+    for (const cap of [64, 500, 7000, 0, -1, 1, 5000]) {
       const config: Record<string, unknown> = { maxHerd: cap };
       expect(applyHerdCapDefault(config)).toBe(false);
       expect(config.maxHerd).toBe(cap);
     }
+  });
+
+  it("never coerces a missing or non-number cap", () => {
+    for (const value of [undefined, null, "2000", Number.NaN, Number.POSITIVE_INFINITY, true]) {
+      const config: Record<string, unknown> = { maxHerd: value };
+      expect(applyHerdCapDefault(config)).toBe(false);
+      expect(config.maxHerd).toBe(value);
+    }
     expect(applyHerdCapDefault({})).toBe(false);
+    expect(defaultConfig.maxHerd).toBe(5000);
   });
 });
 
 describe("reconcileBuiltinHerd — bot herd 20, residents untouched", () => {
   function sweepWorld() {
     const world = createInitialWorld(40);
-    world.config = { ...defaultConfig, maxHerd: 2000 };
+    world.config = { ...defaultConfig, maxHerd: 5000 };
     world.herd.forEach((r, i) => {
       r.born = 1000 + i;
       r.gen = 0;
@@ -211,7 +223,7 @@ describe("reconcileBuiltinHerd — bot herd 20, residents untouched", () => {
 
   it("is a no-op under the target", () => {
     const world = createInitialWorld(10);
-    world.config = { ...defaultConfig, maxHerd: 2000 };
+    world.config = { ...defaultConfig, maxHerd: 5000 };
     ensureHouseResidents(world);
     expect(world.herd.filter((h) => isBuiltinSeedBot(world, h))).toHaveLength(10);
     expect(reconcileBuiltinHerd(world)).toBe(false);

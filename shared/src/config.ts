@@ -173,6 +173,14 @@ export const QUEST_ACTIONS = {
 export type QuestActionType = keyof typeof QUEST_ACTIONS;
 
 /**
+ * Defaults this field has shipped with, oldest first. Boot reconciliation only
+ * rewrites a town still carrying one of these exact values, so a cap set by an
+ * operator is never touched. Keep in sync with `defaultConfig.maxHerd`: the
+ * current default is deliberately NOT in this list.
+ */
+export const HERD_CAP_PREVIOUS: readonly number[] = [200, 2000];
+
+/**
  * Defaults for a NEW town. An existing town keeps whatever config its save
  * carries — this is a default, never a migration — so a rebrand here does not
  * rewrite towns that are already running.
@@ -216,8 +224,8 @@ export const defaultConfig: TownConfig = {
   // a model was wired and quietly failing.
   brain: "sim",
   forkCost: "Free",
-  // 20 built-in residents plus up to 1980 registered agents/forks and other
+  // 20 built-in residents plus up to 4980 registered agents/forks and other
   // residents. The built-in bot herd itself is capped separately (see
   // reconcileBuiltinHerd in server.ts); this is only the total pasture.
-  maxHerd: 2000,
+  maxHerd: 5000,
 };

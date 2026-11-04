@@ -5,7 +5,8 @@
  * grows to one entry per herd member — O(n^2) pairs across the town.
  *
  * Measured at n=77: 1478 pairs, 53% of a resident's JSON and 38% of town.json.
- * At the 200 cap that is ~40k pairs, paid by every client on every snapshot.
+ * At 5000 residents the uncapped map would be ~25M pairs; the cap below keeps
+ * each stored map at 16 entries instead.
  *
  * The cap keeps the strongest ties and drops the noise. 16 is 2x what any client
  * renders (LlamaView shows 8, ProfileModal 6) and well past what MCP asks for

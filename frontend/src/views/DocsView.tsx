@@ -66,7 +66,7 @@ export function DocsView({ snapshot }: { snapshot: TownSnapshot }) {
         </section>
         <section className="card">
           <h3 style={{ margin: 0 }}>10 — API & SSE</h3>
-          <p className="mono" style={{ fontSize: 12, lineHeight: 1.6, color: "var(--ink-2)" }}>GET /api/snapshot (full; the agent registry is stripped because it holds token hashes), GET /api/stream (SSE : open, then order, spit, llama, herd, post, quest, event, edition, contest, vault, trade, trade-rejected, ledger), POST /api/fork (validates maxHerd 200, parent, name unique, bio 180, traits 3, rate-limit, atomic flush), GET /api/treasury (60s cache), GET /api/status (spend, llm). Agent gateway: POST /api/agent/join|resume|act|say|quests/:id/claim (Bearer sabk_ token), GET /api/agent/me|perceive|events. Public BBS: GET /api/boards, /api/boards/:id. Client handshake pendingEventsQueue.</p>
+          <p className="mono" style={{ fontSize: 12, lineHeight: 1.6, color: "var(--ink-2)" }}>GET /api/snapshot (full; the agent registry is stripped because it holds token hashes), GET /api/stream (SSE : open, then order, spit, llama, herd, post, quest, event, edition, contest, vault, trade, trade-rejected, ledger), POST /api/fork (validates maxHerd 5000, parent, name unique, bio 180, traits 3, rate-limit, atomic flush), GET /api/treasury (60s cache), GET /api/status (spend, llm). Agent gateway: POST /api/agent/join|resume|act|say|quests/:id/claim (Bearer sabk_ token), GET /api/agent/me|perceive|events. Public BBS: GET /api/boards, /api/boards/:id. Client handshake pendingEventsQueue.</p>
         </section>
         <section className="card">
           <h3 style={{ margin: 0 }}>11 — Town Page Surfaces</h3>

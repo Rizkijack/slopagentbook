@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { ensureSchema, mergeSnapshots, normalizeHerd, pgLoad, pgSave, planRemoval } from "../src/pgstore.js";
+import { ensureSchema, mergeSnapshots, normalizeHerd, pgLoad, pgSave, planRemoval, settleHerdCap } from "../src/pgstore.js";
 
 // pgstore is where the town lost residents: every Vercel instance holds its own
 // in-memory world and the row is one JSONB blob, so a plain upsert made a
@@ -515,15 +515,43 @@ describe("mergeSnapshots", () => {
     expect(factions[0]!.members).toEqual(["A", "B"]);
   });
 
-  it("does not let a stale 200 cap undo the 2000 migration", () => {
-    const stored = snap({ config: { name: "S", maxHerd: 2000 } });
-    const mine = snap({ config: { name: "S", maxHerd: 200 } });
+  it("a stale 200 writer cannot evict residents from a 5000 row", () => {
+    // Without settleHerdCap this merge would take the writer's 200, and
+    // capHerd would silently drop 2800 residents that were never tombstoned.
+    const stored = snap({
+      config: { name: "S", maxHerd: 5000 },
+      herd: Array.from({ length: 3000 }, (_, i) => resident(`r${i}`, { born: i })),
+    });
+    const mine = snap({ config: { name: "S", maxHerd: 200 }, herd: [] });
     const merged = mergeSnapshots(stored, mine) as Snap;
 
-    expect((merged.config as Snap).maxHerd).toBe(2000);
-    // a deliberately set cap is still writer-wins
-    const custom = mergeSnapshots(stored, snap({ config: { name: "S", maxHerd: 64 } })) as Snap;
-    expect((custom.config as Snap).maxHerd).toBe(64);
+    expect((merged.config as Snap).maxHerd).toBe(5000);
+    expect(merged.herd as Snap[]).toHaveLength(3000);
+  });
+
+  describe("settleHerdCap — rolling cap migration", () => {
+    it.each([
+      [200, 2000, 2000],
+      [2000, 200, 2000],
+      [5000, 200, 5000],
+      [5000, 2000, 5000],
+      [200, 5000, 5000],
+      [2000, 5000, 5000],
+      [5000, 5000, 5000],
+      [5000, 64, 64],
+      [64, 200, 64],
+      [64, 2000, 64],
+      [64, 5000, 64],
+      [7000, 5000, 7000],
+      [5000, 7000, 7000],
+      [64, 500, 500],
+      [200, undefined, 200],
+      [undefined, 5000, 5000],
+      ["2000", 5000, 5000],
+      [Number.NaN, 2000, 2000],
+    ])("stored %s + writer %s -> %s", (stored, writer, expected) => {
+      expect(settleHerdCap(stored, writer)).toBe(expected);
+    });
   });
 
   it("unions the feed newest-first under the cap", () => {

@@ -3,7 +3,7 @@ import cors from "cors";
 import crypto from "node:crypto";
 import type { TownSnapshot, Resident } from "@slopagentbook/shared";
 import { Hc, rf, encodeGenes } from "@slopagentbook/shared";
-import { defaultConfig, pruneRelationships } from "@slopagentbook/shared";
+import { defaultConfig, pruneRelationships, HERD_CAP_PREVIOUS } from "@slopagentbook/shared";
 import { saveAtomically, saveDebounced, flushDebounced, refreshQuestsFromStore, tickSaveDue } from "./persist.js";
 import { normalizeHerd, dedupeFactions, planRemoval, applyRemoval } from "./pgstore.js";
 import { createInitialWorld, makeResidentFromFork, generateEdition, generateWeatherEvent } from "./world.js";
@@ -187,23 +187,26 @@ if (rebranded.length > 0) {
 }
 
 /**
- * The total pasture moved from 200 to 2000: 20 built-in residents plus room
+ * The total pasture moved 200 -> 2000 -> 5000: 20 built-in residents plus room
  * for the agent herd that registers through /api/agent/join and MCP. The
  * built-in bot herd is capped separately by `reconcileBuiltinHerd`.
  *
  * Same rule as the brand and chain reconciliations: only a town still carrying
- * the EXACT previous default (200) is raised, so a cap set deliberately by an
+ * one of the EXACT previous defaults is raised, so a cap set deliberately by an
  * operator is left alone. A saved town keeps its own config, which is why
  * editing `defaultConfig` alone is not enough.
  */
 export function applyHerdCapDefault(config: Record<string, unknown>): boolean {
-  if (config.maxHerd !== 200) return false;
+  const previous = config.maxHerd;
+  if (typeof previous !== "number" || !Number.isFinite(previous)) return false;
+  if (!HERD_CAP_PREVIOUS.includes(previous)) return false;
   config.maxHerd = defaultConfig.maxHerd;
   return true;
 }
 
+const previousHerdCap = world.config.maxHerd;
 if (applyHerdCapDefault(world.config as unknown as Record<string, unknown>)) {
-  console.log(`[boot] herd cap raised 200 -> ${world.config.maxHerd}`);
+  console.log(`[boot] herd cap raised ${previousHerdCap} -> ${world.config.maxHerd}`);
   saveDebounced(DATA_PATH, world, 0);
 }
 
@@ -443,11 +446,11 @@ if (treasuried.length > 0) {
   saveDebounced(DATA_PATH, world, 0);
 }
 
-// Capacity is operator-controlled and starts at 2000 (`maxHerd`). What the
+// Capacity is operator-controlled and starts at 5000 (`maxHerd`). What the
 // operator asked for on 2026-10-30 is a reduction of the herd the row currently
 // holds (61 probe-era residents) down to 20 — a one-shot change of the town's
 // contents, not of the cap, so new joins still have pasture. The cap was later
-// raised to 2000; the built-in 20 is enforced separately by
+// raised to 5000; the built-in 20 is enforced separately by
 // `reconcileBuiltinHerd`.
 //
 // One-shot means a marker, not an exact-previous value: there is no old value
