@@ -48,17 +48,15 @@ import { defaultConfig, HERD_CAP_PREVIOUS } from "@slopagentbook/shared";
 //   revisit if the row ever gets large.
 
 /** Tagged-template query function (also what a transaction hands out). */
-export type PgQuery = (strings: TemplateStringsArray, ...values: unknown[]) => Promise<Record<string, unknown>[]>;
+export type PgQuery = (strings: TemplateStringsArray, ...values: unknown[]) => PgPendingQuery;
 
 /**
- * A neon() client.
+ * The driver adapter's client.
  *
  * `transaction` takes an ARRAY of already-built query objects — NOT a callback
- * that awaits queries. @neondatabase/serverless 1.2.0 throws
- * "transaction() expects an array of queries, or a function returning an array
- * of queries" otherwise, and because the failure only happens against the real
- * driver, a hand-written stub has to model the array form or it will happily
- * green-light code that 500s in production.
+ * that awaits queries. The store relies on that shape to run the advisory lock
+ * and the CAS update on ONE connection; a callback would let a pool hand each
+ * statement a different connection and silently break the lock.
  */
 export interface PgSql extends PgQuery {
   transaction(queries: PgPendingQuery[]): Promise<Record<string, unknown>[][]>;
@@ -69,11 +67,13 @@ export interface PgSql extends PgQuery {
  * which is what makes `sql.transaction([sql\`...\`])` express "these run
  * together" instead of "run this callback".
  *
- * Typed as a plain promise because that is what the driver actually returns;
- * the driver reads the queries it is handed, it does not read properties off
- * them.
+ * `__query` is the captured text/values the adapter reads when it executes the
+ * array inside one transaction. It is optional so a plain Promise remains a
+ * valid test double.
  */
-export type PgPendingQuery = Promise<Record<string, unknown>[]>;
+export type PgPendingQuery = PromiseLike<Record<string, unknown>[]> & {
+  readonly __query?: { text: string; values: unknown[] };
+};
 
 export const TOWN_ROW_ID = "town";
 
@@ -794,7 +794,7 @@ export function applyRemoval(
 const SAVE_RETRIES = 4;
 
 /**
- * `rev` is a `bigint` column, and over the neon HTTP driver int8 comes back as
+ * `rev` is a `bigint` column, and over the Postgres wire int8 comes back as
  * a STRING — the bundled pg-types parser for OID 20 is `parseBigInteger`, which
  * keeps the digits as text. The old coercion (`typeof rev === "number" ? rev : 0`)
  * therefore read every production row as rev 0: the compare-and-swap lost on
@@ -803,7 +803,7 @@ const SAVE_RETRIES = 4;
  * correct the whole time — the fallback is a proper merge — which is exactly why
  * a ~5x bandwidth multiplier hid on a free-tier quota for months.
  *
- * Accept both wirings: number (tests, some drivers) and digit string (neon 1.2).
+ * Accept both wirings: number (tests, some drivers) and digit string (Postgres int8).
  */
 function revNumber(value: unknown): number {
   if (typeof value === "number") return value;
@@ -846,11 +846,12 @@ const storeCache = new Map<string, { rev: number; merged: string }>();
 
 /** Test hook: any save made with a stale fake row must not leak across tests. */
 export function clearStoreCache(): void {
-  storeCache.delete(TOWN_ROW_ID);
+  storeCache.clear();
 }
 
-export async function pgSave(sql: PgSql, snapshot: unknown): Promise<void> {
-  const cached = storeCache.get(TOWN_ROW_ID);
+export async function pgSave(sql: PgSql, snapshot: unknown, target = "primary"): Promise<void> {
+  const cacheKey = `${target}:${TOWN_ROW_ID}`;
+  const cached = storeCache.get(cacheKey);
   if (cached) {
     // One small query instead of a full-row read. rev moving on proves only
     // that SOMEONE else wrote; dropping the cache sends us down the exact path
@@ -879,19 +880,20 @@ export async function pgSave(sql: PgSql, snapshot: unknown): Promise<void> {
       ]);
       const updated = result[1] ?? [];
       if (updated.length > 0) {
-        storeCache.set(TOWN_ROW_ID, { rev: revNumber(updated[0]!.rev), merged: merged });
+        storeCache.set(cacheKey, { rev: revNumber(updated[0]!.rev), merged: merged });
         return;
       }
       // Lost the CAS: fall through to the full path, which re-reads everything.
     }
-    storeCache.delete(TOWN_ROW_ID);
+    storeCache.delete(cacheKey);
   }
   for (let attempt = 0; attempt <= SAVE_RETRIES; attempt++) {
     // Read the row as it is NOW. This is a plain query, not part of a
-    // transaction: the array form of neon().transaction() cannot feed a query's
-    // result into a later query's values, and a read-merge-write needs exactly
-    // that (the merged JSON is not known until the read returns). So the read
-    // is optimistic and the write below is what actually decides who wins.
+    // transaction: the array form of the driver's transaction() cannot feed a
+    // query's result into a later query's values, and a read-merge-write needs
+    // exactly that (the merged JSON is not known until the read returns). So
+    // the read is optimistic and the write below is what actually decides who
+    // wins.
     const rows = await sql`SELECT snapshot, rev FROM town_state WHERE id = ${TOWN_ROW_ID}`;
     const row = rows[0];
 
@@ -905,7 +907,7 @@ export async function pgSave(sql: PgSql, snapshot: unknown): Promise<void> {
         VALUES (${TOWN_ROW_ID}, ${first}::jsonb, now(), 1)
         ON CONFLICT (id) DO UPDATE
           SET snapshot = EXCLUDED.snapshot, updated_at = now(), rev = town_state.rev + 1`;
-      storeCache.set(TOWN_ROW_ID, { rev: 1, merged: JSON.stringify(JSON.parse(first)) });
+      storeCache.set(cacheKey, { rev: 1, merged: JSON.stringify(JSON.parse(first)) });
       return;
     }
 
@@ -927,7 +929,7 @@ export async function pgSave(sql: PgSql, snapshot: unknown): Promise<void> {
 
     const updated = result[1] ?? [];
     if (updated.length > 0) {
-      storeCache.set(TOWN_ROW_ID, { rev: revNumber(updated[0]!.rev), merged: JSON.stringify(JSON.parse(merged)) });
+      storeCache.set(cacheKey, { rev: revNumber(updated[0]!.rev), merged: JSON.stringify(JSON.parse(merged)) });
       return;
     }
     // Somebody committed between our read and our write: re-read and re-merge
@@ -950,15 +952,37 @@ export async function pgSave(sql: PgSql, snapshot: unknown): Promise<void> {
       SET snapshot = EXCLUDED.snapshot, updated_at = now(), rev = town_state.rev + 1`;
 }
 
-export async function pgLoad(sql: PgQuery): Promise<unknown | null> {
+export async function pgLoad(sql: PgQuery, target = "primary"): Promise<unknown | null> {
   // `rev` rides along so a successful load also seeds the save cache: without
   // it the first save after boot would take the full path even when nothing
   // changed since the row was read.
   const rows = await sql`SELECT snapshot, rev FROM town_state WHERE id = ${TOWN_ROW_ID}`;
   if (rows.length === 0) return null;
   const stored = JSON.stringify(parseSnapshot(rows[0]!.snapshot));
-  storeCache.set(TOWN_ROW_ID, { rev: revNumber(rows[0]!.rev), merged: stored });
+  storeCache.set(`${target}:${TOWN_ROW_ID}`, { rev: revNumber(rows[0]!.rev), merged: stored });
   return JSON.parse(stored);
+}
+
+/**
+ * Cheap "which store is newer" probe, used at boot when a primary and a
+ * standby are both configured. It deliberately does not ship the snapshot:
+ * choosing the newer row costs a few dozen bytes, not two full rows.
+ */
+export async function pgLoadMeta(
+  sql: PgQuery,
+): Promise<{ rev: number; updatedAt: number } | null> {
+  const rows = await sql`SELECT rev, updated_at FROM town_state WHERE id = ${TOWN_ROW_ID}`;
+  if (rows.length === 0) return null;
+  const raw = rows[0]!.updated_at;
+  const updatedAt =
+    raw instanceof Date
+      ? raw.getTime()
+      : typeof raw === "string"
+        ? Date.parse(raw)
+        : typeof raw === "number"
+          ? raw
+          : 0;
+  return { rev: revNumber(rows[0]!.rev), updatedAt: Number.isFinite(updatedAt) ? updatedAt : 0 };
 }
 
 // ---------------------------------------------------------------------------
@@ -977,7 +1001,7 @@ export async function pgLoad(sql: PgQuery): Promise<unknown | null> {
  *
  * `pgLoad` pulls the whole snapshot — 279KB measured — and the quest
  * read-through (`refreshQuestsFromStore`) runs on every `GET /api/quests`, so
- * the full row was the largest single line item on the Neon data-transfer bill
+ * the full row was the largest single line item on the database data-transfer bill
  * for a read that consumes 6KB. The `->` extraction keeps the work server-side
  * and ships only the array.
  *
@@ -997,7 +1021,7 @@ export async function pgLoadQuests(
   if (rows.length === 0) return null;
   const row = rows[0]!;
   if (row.kind !== "object" || row.herd_kind !== "array") return null;
-  // bigint arrives as a string over the neon driver — revNumber is the one
+  // bigint arrives as a string over the Postgres wire — revNumber is the one
   // place that coercion lives.
   return { quests: asArr(parseSnapshot(row.quests)), epoch: revNumber(row.quest_epoch) };
 }

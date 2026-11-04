@@ -3,23 +3,62 @@ import { open } from "fs/promises";
 import { readFile } from "fs/promises";
 import { existsSync } from "fs";
 import { dirname } from "path";
-import { neon } from "@neondatabase/serverless";
+import { databaseTargets, fallbackPgSql, hasDatabase, pgSql, type DbRole, type DbTarget } from "./pgsql.js";
 import type { TownSnapshot } from "@slopagentbook/shared";
-import { pgLoad, pgSave, pgLoadQuests, pgLoadAuthFields, mergeSnapshots, mergeQuests, type PgSql } from "./pgstore.js";
+import { pgLoad, pgLoadMeta, pgSave, pgLoadQuests, pgLoadAuthFields, mergeSnapshots, mergeQuests, type PgQuery } from "./pgstore.js";
+
+export { pgSql, fallbackPgSql };
 
 /**
- * A Neon client for the current DATABASE_URL.
+ * Which configured store is currently authoritative.
  *
- * Exported so tooling and tests reach the database through the same driver and
- * the same connection settings the server uses. A script that opened its own
- * client would be a second, untested write path — and the write path is exactly
- * where this project has shipped a production outage before (a stub that modelled
- * `transaction()` more permissively than the real driver does).
+ * A failed save flips this to the other store for the rest of the process;
+ * mirroring keeps the standby current, and the next cold start tries the
+ * primary again. Reads and writes both follow this role, so a failover does not
+ * leave half the process on a dead database.
  */
-export function pgSql(): PgSql {
-  // Lazy + per-call: serverless instances must not hold idle connections.
-  // @neondatabase/serverless is fetch-based, so this is cheap.
-  return neon(process.env.DATABASE_URL!) as unknown as PgSql;
+let activeRole: DbRole = process.env.DATABASE_URL ? "primary" : "fallback";
+let primaryRetryAt = 0;
+const PRIMARY_RETRY_MS = 60_000;
+
+function orderedTargets() {
+  const targets = databaseTargets();
+  return [...targets].sort((a, b) =>
+    a.role === activeRole ? -1 : b.role === activeRole ? 1 : 0,
+  );
+}
+
+function mirrorDelayMs(): number {
+  const raw = Number(process.env.DB_MIRROR_MS);
+  return Number.isFinite(raw) && raw >= 0 ? raw : 300_000;
+}
+
+let lastMirrorAt = 0;
+
+/**
+ * Best-effort copy of the current world to the standby store.
+ *
+ * Routine tick saves are throttled by `DB_MIRROR_MS` (5 min by default) so a
+ * standby does not double the write bill. Critical saves pass `force`, because
+ * losing a ledger or vault write on failover is not the same as losing a few
+ * seconds of wandering.
+ */
+async function mirrorToStandby(targets: DbTarget[], data: unknown, force: boolean): Promise<void> {
+  const standby = targets.find((target) => target.role !== activeRole);
+  if (!standby) return;
+  if (standby.role === "primary" && Date.now() < primaryRetryAt) return;
+  if (!force && Date.now() - lastMirrorAt < mirrorDelayMs()) return;
+  lastMirrorAt = Date.now();
+  try {
+    await pgSave(standby.sql, data, standby.role);
+    if (standby.role === "primary") primaryRetryAt = 0;
+  } catch (e) {
+    if (standby.role === "primary") primaryRetryAt = Date.now() + PRIMARY_RETRY_MS;
+    console.error(
+      `[persist] mirror to ${standby.role} failed:`,
+      e instanceof Error ? e.message : e,
+    );
+  }
 }
 
 /**
@@ -46,9 +85,31 @@ export function pgSql(): PgSql {
 let saveChain: Promise<void> = Promise.resolve();
 let saveSeq = 0;
 
-export async function saveAtomically(path: string, data: unknown): Promise<void> {
-  if (process.env.DATABASE_URL) {
-    await pgSave(pgSql(), data);
+export async function saveAtomically(
+  path: string,
+  data: unknown,
+  options: { mirror?: "now" | "lazy" } = { mirror: "now" },
+): Promise<void> {
+  if (hasDatabase()) {
+    const targets = databaseTargets();
+    const active = targets.find((target) => target.role === activeRole) ?? targets[0];
+    if (!active) throw new Error("no database configured");
+    activeRole = active.role;
+    try {
+      await pgSave(active.sql, data, active.role);
+    } catch (error) {
+      const standby = targets.find((target) => target.role !== active.role);
+      if (!standby) throw error;
+      console.error(
+        `[persist] ${active.role} save failed; ${standby.role} takes over:`,
+        error instanceof Error ? error.message : error,
+      );
+      if (active.role === "primary") primaryRetryAt = Date.now() + PRIMARY_RETRY_MS;
+      activeRole = standby.role;
+      await pgSave(standby.sql, data, standby.role);
+      return;
+    }
+    await mirrorToStandby(targets, data, options.mirror === "now");
     return;
   }
   const run = saveChain.then(
@@ -80,10 +141,52 @@ async function writeAtomically(path: string, data: unknown): Promise<void> {
 }
 
 export async function loadWithRecovery(path: string): Promise<unknown> {
-  if (process.env.DATABASE_URL) {
-    const snap = await pgLoad(pgSql());
-    if (snap) return snap;
-    throw new Error(`no data at ${path} or backup`);
+  if (hasDatabase()) {
+    const targets = orderedTargets();
+    const metas: Array<{ target: DbTarget; updatedAt: number }> = [];
+    let firstError: unknown;
+    let sawEmpty = false;
+
+    // Ask both stores which row is newer without moving either snapshot. The
+    // standby can be AHEAD after a failover, so "primary first" is not safe:
+    // blindly preferring it would discard every write made while it was down.
+    for (const target of targets) {
+      try {
+        const meta = await pgLoadMeta(target.sql);
+        if (meta) metas.push({ target, updatedAt: meta.updatedAt });
+        else sawEmpty = true;
+      } catch (e) {
+        firstError ??= e;
+        console.error(
+          `[persist] ${target.role} meta read failed:`,
+          e instanceof Error ? e.message : e,
+        );
+      }
+    }
+
+    metas.sort((a, b) => b.updatedAt - a.updatedAt);
+    for (const { target } of metas) {
+      try {
+        const snap = await pgLoad(target.sql, target.role);
+        if (snap) {
+          activeRole = target.role;
+          return snap;
+        }
+        sawEmpty = true;
+      } catch (e) {
+        firstError ??= e;
+        console.error(
+          `[persist] ${target.role} load failed:`,
+          e instanceof Error ? e.message : e,
+        );
+      }
+    }
+
+    // An empty store is a fresh deployment even if the OTHER store was
+    // unreachable: seeding there is safe, and refusing would leave the town
+    // down while a perfectly usable database is configured.
+    if (sawEmpty) throw new Error(`no data at ${path} or backup`);
+    throw firstError ?? new Error(`no data at ${path} or backup`);
   }
   try {
     const raw = await readFile(path, "utf8");
@@ -115,7 +218,7 @@ export function saveDebounced(path: string, data: unknown, delayMs = 800): void 
       // next act or tick writes the full world again, so logging and moving on
       // is the honest recovery.
       try {
-        await saveAtomically(pendingPath, pendingData);
+        await saveAtomically(pendingPath, pendingData, { mirror: "lazy" });
       } catch (e) {
         console.error("[persist] debounced save failed:", e instanceof Error ? e.message : e);
       }
@@ -136,9 +239,9 @@ export function flushDebounced(): Promise<void> | null {
 /**
  * Debounce window for the HOT gateway writes (`act`, `say`).
  *
- * Each of those saves the whole 279KB row over the neon HTTP driver, and the
+ * Each of those saves the whole 279KB row over the Postgres driver, and the
  * agents that call them act on a cadence of seconds — one full-row round trip
- * per action was the single largest item on the Neon transfer bill. N actions
+ * per action was the single largest item on the database transfer bill. N actions
  * inside the window now land as ONE save of the latest state; the SSE
  * broadcasts already delivered the content live, so only persistence lags.
  * Money and state-machine routes keep `saveAtomically` — they are rare and
@@ -148,7 +251,7 @@ export function flushDebounced(): Promise<void> | null {
  * `PG_ACTION_SAVE_MS`.
  */
 export function actionSaveDelayMs(): number {
-  if (!process.env.DATABASE_URL) return 800;
+  if (!hasDatabase()) return 800;
   const raw = Number(process.env.PG_ACTION_SAVE_MS);
   return Number.isFinite(raw) && raw >= 0 ? raw : 5000;
 }
@@ -262,7 +365,7 @@ const reloadStates = new WeakMap<TownSnapshot, ReloadState>();
  * written from this same memory), so a reload would be pure overhead.
  */
 export async function refreshFromStore(path: string, world: TownSnapshot): Promise<boolean> {
-  if (!process.env.DATABASE_URL) return false;
+  if (!hasDatabase()) return false;
   const state = reloadStates.get(world) ?? { inFlight: null, lastAttemptAt: 0 };
   reloadStates.set(world, state);
 
@@ -308,7 +411,7 @@ export async function refreshFromStore(path: string, world: TownSnapshot): Promi
 const questReloadStates = new WeakMap<TownSnapshot, ReloadState>();
 
 export async function refreshQuestsFromStore(path: string, world: TownSnapshot): Promise<boolean> {
-  if (!process.env.DATABASE_URL) return false;
+  if (!hasDatabase()) return false;
   const state = questReloadStates.get(world) ?? { inFlight: null, lastAttemptAt: 0 };
   questReloadStates.set(world, state);
   if (state.inFlight) return state.inFlight;
@@ -320,15 +423,27 @@ export async function refreshQuestsFromStore(path: string, world: TownSnapshot):
   return state.inFlight;
 }
 
+async function readFromTargets<T>(read: (sql: PgQuery) => Promise<T>): Promise<T> {
+  let lastError: unknown;
+  for (const target of orderedTargets()) {
+    try {
+      return await read(target.sql);
+    } catch (e) {
+      lastError = e;
+    }
+  }
+  throw lastError ?? new Error("no database configured");
+}
+
 async function reloadQuestsFromStore(path: string, world: TownSnapshot): Promise<boolean> {
   // Snapshot the board AFTER the load resolves: any request interleaving
   // between our start and the row read belongs in `mine`.
   try {
     // Field-narrowed read: the board consumes ~6KB and the full row is ~279KB,
     // and this runs on every GET /api/quests — the full row was the largest
-    // single item on the Neon transfer bill. `null` = no row → the same honest
+    // single item on the database transfer bill. `null` = no row → the same honest
     // "nothing was reloaded" the old no-data throw produced.
-    const stored = await pgLoadQuests(pgSql());
+    const stored = await readFromTargets((sql) => pgLoadQuests(sql));
     if (stored === null) return false;
     // The board is generation-scoped: a reset publishes a newer epoch, and
     // unioning this instance's pre-reset rows into it would resurrect every
@@ -360,7 +475,7 @@ async function reloadFromStore(path: string, world: TownSnapshot): Promise<boole
     // other ~170KB of the row (feed, editions, ledger) no longer rides along
     // on every auth miss. pgLoadAuthFields answers `null` on a missing row —
     // the same honest "nothing was reloaded" the old no-data throw produced.
-    const fields = await pgLoadAuthFields(pgSql());
+    const fields = await readFromTargets((sql) => pgLoadAuthFields(sql));
     if (!fields) return false;
     const stored = {
       agents: fields.agents,

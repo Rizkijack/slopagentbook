@@ -15,7 +15,7 @@
  *  - an ORPHANED record (agent row present, resident gone) still 401s
  *  - a warm instance that already knows the token never queries the store at all
  *
- * `saveAtomically` is mocked (the auth path writes nothing) and the neon driver
+ * `saveAtomically` is mocked (the auth path writes nothing) and the store driver
  * is faked, so the test asserts against a controlled row instead of a database.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
@@ -36,52 +36,58 @@ vi.mock("../src/persist.js", async (importOriginal) => {
   return { ...actual, saveAtomically: vi.fn(async () => undefined), saveDebounced: vi.fn() };
 });
 
-vi.mock("@neondatabase/serverless", () => ({
-  neon: vi.fn(() => {
-    const exec = async (strings: TemplateStringsArray, ..._values: unknown[]) => {
-      const text = strings.join("?");
-      stmts.push(text);
-      // The auth refresh reads FIELD-NARROWED slices now (agents/herd/
-      // tombstones; quests for the board) — the full row no longer crosses the
-      // wire for a reload, so the stub answers the shapes the refresh asks for,
-      // jsonb_typeof guard included.
-      if (/snapshot->'quests' AS quests/i.test(text)) {
-        if (!row) return [];
-        const parsed = (row.snapshot ?? {}) as Record<string, unknown>;
-        return [
-          {
-            kind: typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? "object" : "other",
-            herd_kind: Array.isArray(parsed.herd) ? "array" : "other",
-            quests: parsed.quests ?? null,
-            quest_epoch: String(typeof parsed.questEpoch === "number" ? parsed.questEpoch : 0),
-          },
-        ];
-      }
-      if (/snapshot->'tombstones' AS tombstones FROM town_state/i.test(text)) {
-        if (!row) return [];
-        const parsed = (row.snapshot ?? {}) as Record<string, unknown>;
-        return [
-          {
-            kind: typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? "object" : "other",
-            herd_kind: Array.isArray(parsed.herd) ? "array" : "other",
-            agents: parsed.agents ?? null,
-            herd: parsed.herd ?? null,
-            tombstones: parsed.tombstones ?? null,
-          },
-        ];
-      }
-      if (/SELECT snapshot(?:, rev)? FROM town_state/i.test(text)) {
-        return row ? [{ snapshot: row.snapshot, rev: row.rev }] : [];
-      }
-      // A write here would mean the auth path grew a second persistence
-      // mechanism; failing loudly beats letting it pass unnoticed.
-      throw new Error(`unexpected write on the auth path: ${text}`);
-    };
-    return Object.assign(exec, {
-      transaction: async (qs: Promise<unknown>[]) => Promise.all(qs),
-    });
-  }),
-}));
+vi.mock("../src/pgsql.js", () => {
+  const exec = async (strings: TemplateStringsArray, ..._values: unknown[]) => {
+    const text = strings.join("?");
+    stmts.push(text);
+    // The auth refresh reads FIELD-NARROWED slices now (agents/herd/
+    // tombstones; quests for the board) — the full row no longer crosses the
+    // wire for a reload, so the stub answers the shapes the refresh asks for,
+    // jsonb_typeof guard included.
+    if (/snapshot->'quests' AS quests/i.test(text)) {
+      if (!row) return [];
+      const parsed = (row.snapshot ?? {}) as Record<string, unknown>;
+      return [
+        {
+          kind: typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? "object" : "other",
+          herd_kind: Array.isArray(parsed.herd) ? "array" : "other",
+          quests: parsed.quests ?? null,
+          quest_epoch: String(typeof parsed.questEpoch === "number" ? parsed.questEpoch : 0),
+        },
+      ];
+    }
+    if (/snapshot->'tombstones' AS tombstones FROM town_state/i.test(text)) {
+      if (!row) return [];
+      const parsed = (row.snapshot ?? {}) as Record<string, unknown>;
+      return [
+        {
+          kind: typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? "object" : "other",
+          herd_kind: Array.isArray(parsed.herd) ? "array" : "other",
+          agents: parsed.agents ?? null,
+          herd: parsed.herd ?? null,
+          tombstones: parsed.tombstones ?? null,
+        },
+      ];
+    }
+    if (/SELECT snapshot(?:, rev)? FROM town_state/i.test(text)) {
+      return row ? [{ snapshot: row.snapshot, rev: row.rev }] : [];
+    }
+    // A write here would mean the auth path grew a second persistence
+    // mechanism; failing loudly beats letting it pass unnoticed.
+    throw new Error(`unexpected write on the auth path: ${text}`);
+  };
+  const sql = Object.assign(exec, {
+    transaction: async (qs: Promise<unknown>[]) => Promise.all(qs),
+  });
+  const configured = () => Boolean(process.env.DATABASE_URL || process.env.FALLBACK_DATABASE_URL);
+  return {
+    hasDatabase: configured,
+    databaseTargets: () => (configured() ? [{ role: "primary", sql }] : []),
+    pgSql: () => sql,
+    fallbackPgSql: () => null,
+    resetPgPools: async () => {},
+  };
+});
 
 const { createGatewayRouter } = await import("../src/gateway.js");
 const { createInitialWorld } = await import("../src/world.js");

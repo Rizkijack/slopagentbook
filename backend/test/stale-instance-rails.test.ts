@@ -24,7 +24,7 @@
  *     exactly as the write path does, so the reload cannot resurrect a
  *     credential an admin deleted
  *
- * `saveAtomically`/`saveDebounced` are mocked and the neon driver is faked, so
+ * `saveAtomically`/`saveDebounced` are mocked and the store driver is faked, so
  * every assertion is against a controlled row, and a write on the auth path
  * throws rather than passing unnoticed.
  */
@@ -79,54 +79,60 @@ vi.mock("../src/agents.js", async (importOriginal) => {
   };
 });
 
-vi.mock("@neondatabase/serverless", () => ({
-  neon: vi.fn(() => {
-    const exec = async (strings: TemplateStringsArray, ..._values: unknown[]) => {
-      const text = strings.join("?");
-      stmts.push(text);
-      // Field-narrowed reads (agents/herd/tombstones for auth, quests for the
-      // board) — the reload no longer pulls the full row across the wire, so
-      // the stub answers the slices from the same authoritative row, guard
-      // columns included.
-      if (/snapshot->'quests' AS quests/i.test(text)) {
-        if (readGate) await readGate;
-        if (!row) return [];
-        const parsed = (row.snapshot ?? {}) as Record<string, unknown>;
-        return [
-          {
-            kind: typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? "object" : "other",
-            herd_kind: Array.isArray(parsed.herd) ? "array" : "other",
-            quests: parsed.quests ?? null,
-            quest_epoch: String(typeof parsed.questEpoch === "number" ? parsed.questEpoch : 0),
-          },
-        ];
-      }
-      if (/snapshot->'tombstones' AS tombstones FROM town_state/i.test(text)) {
-        if (readGate) await readGate;
-        if (!row) return [];
-        const parsed = (row.snapshot ?? {}) as Record<string, unknown>;
-        return [
-          {
-            kind: typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? "object" : "other",
-            herd_kind: Array.isArray(parsed.herd) ? "array" : "other",
-            agents: parsed.agents ?? null,
-            herd: parsed.herd ?? null,
-            tombstones: parsed.tombstones ?? null,
-          },
-        ];
-      }
-      if (/SELECT snapshot(?:, rev)? FROM town_state/i.test(text)) {
-        // hold the read open so concurrent callers really do overlap
-        if (readGate) await readGate;
-        return row ? [{ snapshot: row.snapshot, rev: row.rev }] : [];
-      }
-      throw new Error(`unexpected write on the auth path: ${text}`);
-    };
-    return Object.assign(exec, {
-      transaction: async (qs: Promise<unknown>[]) => Promise.all(qs),
-    });
-  }),
-}));
+vi.mock("../src/pgsql.js", () => {
+  const exec = async (strings: TemplateStringsArray, ..._values: unknown[]) => {
+    const text = strings.join("?");
+    stmts.push(text);
+    // Field-narrowed reads (agents/herd/tombstones for auth, quests for the
+    // board) — the reload no longer pulls the full row across the wire, so
+    // the stub answers the slices from the same authoritative row, guard
+    // columns included.
+    if (/snapshot->'quests' AS quests/i.test(text)) {
+      if (readGate) await readGate;
+      if (!row) return [];
+      const parsed = (row.snapshot ?? {}) as Record<string, unknown>;
+      return [
+        {
+          kind: typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? "object" : "other",
+          herd_kind: Array.isArray(parsed.herd) ? "array" : "other",
+          quests: parsed.quests ?? null,
+          quest_epoch: String(typeof parsed.questEpoch === "number" ? parsed.questEpoch : 0),
+        },
+      ];
+    }
+    if (/snapshot->'tombstones' AS tombstones FROM town_state/i.test(text)) {
+      if (readGate) await readGate;
+      if (!row) return [];
+      const parsed = (row.snapshot ?? {}) as Record<string, unknown>;
+      return [
+        {
+          kind: typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? "object" : "other",
+          herd_kind: Array.isArray(parsed.herd) ? "array" : "other",
+          agents: parsed.agents ?? null,
+          herd: parsed.herd ?? null,
+          tombstones: parsed.tombstones ?? null,
+        },
+      ];
+    }
+    if (/SELECT snapshot(?:, rev)? FROM town_state/i.test(text)) {
+      // hold the read open so concurrent callers really do overlap
+      if (readGate) await readGate;
+      return row ? [{ snapshot: row.snapshot, rev: row.rev }] : [];
+    }
+    throw new Error(`unexpected write on the auth path: ${text}`);
+  };
+  const sql = Object.assign(exec, {
+    transaction: async (qs: Promise<unknown>[]) => Promise.all(qs),
+  });
+  const configured = () => Boolean(process.env.DATABASE_URL || process.env.FALLBACK_DATABASE_URL);
+  return {
+    hasDatabase: configured,
+    databaseTargets: () => (configured() ? [{ role: "primary", sql }] : []),
+    pgSql: () => sql,
+    fallbackPgSql: () => null,
+    resetPgPools: async () => {},
+  };
+});
 
 const { createGatewayRouter } = await import("../src/gateway.js");
 const { createBrawlRouter } = await import("../src/brawl.js");

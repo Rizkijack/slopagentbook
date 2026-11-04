@@ -5,7 +5,8 @@ import type { TownSnapshot, Resident } from "@slopagentbook/shared";
 import { Hc, rf, encodeGenes } from "@slopagentbook/shared";
 import { defaultConfig, pruneRelationships, HERD_CAP_PREVIOUS } from "@slopagentbook/shared";
 import { saveAtomically, saveDebounced, flushDebounced, refreshQuestsFromStore, tickSaveDue } from "./persist.js";
-import { normalizeHerd, dedupeFactions, planRemoval, applyRemoval } from "./pgstore.js";
+import { normalizeHerd, dedupeFactions, planRemoval, applyRemoval, ensureSchema } from "./pgstore.js";
+import { databaseTargets, hasDatabase } from "./pgsql.js";
 import { createInitialWorld, makeResidentFromFork, generateEdition, generateWeatherEvent } from "./world.js";
 import { loadWithRecovery } from "./persist.js";
 import { updateQuestProgress, claimQuest, refreshExpiredQuests, generateQuest, createInitialQuests, questRewardInfo } from "./quests.js";
@@ -43,13 +44,18 @@ function resolveDataPath(): string {
 
 const DATA_PATH = resolveDataPath();
 
-if (process.env.DATABASE_URL) {
-  try {
-    const { neon } = await import("@neondatabase/serverless");
-    const { ensureSchema } = await import("./pgstore.js");
-    await ensureSchema(neon(process.env.DATABASE_URL));
-  } catch (e) {
-    console.error("[persist] ensureSchema failed; boot will refuse if the store cannot be read:", e);
+if (hasDatabase()) {
+  // Prepare every configured store. A quota-blocked primary must not stop the
+  // standby from booting; the load path below picks whichever answers.
+  for (const target of databaseTargets()) {
+    try {
+      await ensureSchema(target.sql);
+    } catch (e) {
+      console.error(
+        `[persist] ensureSchema failed for ${target.role}; boot will try the other store:`,
+        e,
+      );
+    }
   }
 }
 
@@ -67,7 +73,7 @@ let freshBoot = false;
 // about whether the town has been saved, so the database must be consulted even
 // when the file does not exist — otherwise every cold start seeds a new town and
 // the next autosave writes it over the real row.
-const usingDatabase = Boolean(process.env.DATABASE_URL);
+const usingDatabase = hasDatabase();
 if (usingDatabase || existsSync(DATA_PATH)) {
   let loaded: TownSnapshot | null = null;
   try {
@@ -1040,7 +1046,7 @@ const TURN_MS = Number(process.env.TURN_MS ?? 1800);
 // row instead of re-reading it. `PG_SAVE_DEBOUNCE_MS` still wins when an
 // operator wants faster persistence. File mode keeps 800ms: it is disk, not a
 // quota.
-const TICK_SAVE_MS = Number(process.env.PG_SAVE_DEBOUNCE_MS ?? (process.env.DATABASE_URL ? 15000 : 800));
+const TICK_SAVE_MS = Number(process.env.PG_SAVE_DEBOUNCE_MS ?? (hasDatabase() ? 15000 : 800));
 // The tick's dirty flag. A tick that produced nothing skips entirely; one that
 // ran (needs drifted, a post landed, an edition published) marks dirty and the
 // interval decides. Reset per save, so an over-due town saves on the next tick.

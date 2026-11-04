@@ -30,19 +30,25 @@ stored.factions.push(
   { ...seededFaction, id: "faction-dup-2" },
 );
 
-vi.mock("@neondatabase/serverless", () => ({
-  neon: vi.fn(() => {
-    // pgLoad runs `SELECT snapshot, rev FROM town_state WHERE id = ...`; every
-    // other statement (ensureSchema, a stray save) tolerates the same row.
-    const exec = async () => [{ snapshot: stored, rev: 7 }];
-    return Object.assign(exec, {
-      // neon's transaction takes either a callback or an ARRAY of queries.
-      // pgSave uses the array form and reads result[1] as the updated rows.
+vi.mock("../src/pgsql.js", () => {
+  // pgLoad runs `SELECT snapshot, rev FROM town_state WHERE id = ...`; every
+  // other statement (ensureSchema, a stray save) tolerates the same row.
+  const exec = Object.assign(
+    async () => [{ snapshot: stored, rev: 7 }],
+    {
+      // The store uses the array form and reads result[1] as the updated rows.
       transaction: async (arg: unknown) =>
         Array.isArray(arg) ? [[], [{ rev: 8 }]] : (arg as (tx: typeof exec) => Promise<unknown>)(exec),
-    });
-  }),
-}));
+    },
+  );
+  return {
+    hasDatabase: () => true,
+    databaseTargets: () => [{ role: "primary", sql: exec }],
+    pgSql: () => exec,
+    fallbackPgSql: () => null,
+    resetPgPools: async () => {},
+  };
+});
 
 process.env.DATABASE_URL = "postgres://test";
 process.env.DATA_PATH = path.join(os.tmpdir(), `slab-pg-boot-${Date.now()}`, "town.json");

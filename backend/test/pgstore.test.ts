@@ -18,7 +18,7 @@ type DbState = { row: Row | null };
 /**
  * In-memory stand-in for town_state.
  *
- * It models @neondatabase/serverless 1.2.0 FAITHFULLY, which is the whole
+ * It models the PgSql array-transaction contract FAITHFULLY, which is the whole
  * point: the previous version of this file accepted a CALLBACK transaction, so
  * the suite went fully green while production returned 500 on every write
  * ("transaction() expects an array of queries"). A stub more permissive than
@@ -888,9 +888,10 @@ describe("pgSave — the lost-update rule", () => {
   it("rejects a callback-style transaction the way the real driver does", async () => {
     // This is the regression guard for the production outage: the previous
     // implementation passed an `async (tx) => { await tx\`...\` }` callback to
-    // neon().transaction(), which throws at runtime on 1.2.0 and 500s every
-    // write. The stub enforces the array contract so that shape cannot come
-    // back without turning this file red.
+    // the driver. The adapter's transaction() rejects the callback form. A
+    // hand-written stub that accepted one would green-light code that 500s in
+    // production. The stub enforces the array contract so that shape cannot
+    // come back without turning this file red.
     const { sql } = fakeDb();
     const bad = sql as unknown as { transaction: (q: unknown) => Promise<unknown> };
     expect(() => bad.transaction(async () => [])).toThrow(/expects an array of queries/);

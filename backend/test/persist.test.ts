@@ -40,17 +40,39 @@ describe("Atomic persist", () => {
 });
 
 // pgSave is a locked read-merge-write, so the client it is handed must be able
-// to open a transaction — the real neon() client always can.
-vi.mock("@neondatabase/serverless", () => ({
-  neon: vi.fn(() => {
-    const exec = async () => [] as Record<string, unknown>[];
-    return Object.assign(exec, {
-      transaction: async <T,>(fn: (tx: typeof exec) => Promise<T>): Promise<T> => fn(exec),
-    });
-  }),
-}));
+// to open a transaction — the real pg adapter always can. Tests swap `fakeSql`
+// per case; `pgSqlCalls` counts save attempts, not individual statements.
+let fakeSql: any;
+let pgSqlCalls = 0;
 
-import { neon } from "@neondatabase/serverless";
+function makeFakeSql(
+  impl: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<Record<string, unknown>[]>,
+): any {
+  const exec = impl as any;
+  exec.transaction = async (queries: unknown[]) => {
+    if (!Array.isArray(queries)) throw new Error("transaction() expects an array of queries");
+    return [];
+  };
+  return exec;
+}
+
+fakeSql = makeFakeSql(async () => []);
+
+vi.mock("../src/pgsql.js", () => {
+  const configured = () => Boolean(process.env.DATABASE_URL || process.env.FALLBACK_DATABASE_URL);
+  const pgSqlFn = () => {
+    pgSqlCalls += 1;
+    return fakeSql;
+  };
+  return {
+    hasDatabase: configured,
+    pgSql: pgSqlFn,
+    fallbackPgSql: () => null,
+    databaseTargets: () =>
+      configured() ? [{ role: "primary", sql: pgSqlFn() }] : [],
+    resetPgPools: async () => {},
+  };
+});
 
 describe("persist pg routing (DATABASE_URL set)", () => {
   const pgDir = path.join(os.tmpdir(), "agentbook-pg-test-" + Date.now());
@@ -60,7 +82,8 @@ describe("persist pg routing (DATABASE_URL set)", () => {
   beforeEach(() => {
     prevDbUrl = process.env.DATABASE_URL;
     process.env.DATABASE_URL = "postgres://test";
-    vi.clearAllMocks();
+    fakeSql = makeFakeSql(async () => []);
+    pgSqlCalls = 0;
   });
 
   afterEach(() => {
@@ -72,7 +95,7 @@ describe("persist pg routing (DATABASE_URL set)", () => {
   it("saveAtomically routes to pg and does not touch disk", async () => {
     expect(existsSync(neverPath)).toBe(false);
     await saveAtomically(neverPath, { herd: [] });
-    expect(vi.mocked(neon)).toHaveBeenCalled();
+    expect(pgSqlCalls).toBeGreaterThan(0);
     expect(existsSync(neverPath)).toBe(false);
   });
 
@@ -85,22 +108,15 @@ describe("persist pg routing (DATABASE_URL set)", () => {
     await mkdir(pgDir, { recursive: true });
     await writeFile(neverPath, JSON.stringify({ disk: true }), "utf8");
     await expect(loadWithRecovery(neverPath)).rejects.toThrow(/no data at/);
-    expect(vi.mocked(neon)).toHaveBeenCalled();
+    expect(pgSqlCalls).toBeGreaterThan(0);
   });
 
   it("a failed debounced save is caught, not left as an unhandled rejection", async () => {
     // The debounce timer has no caller to catch a rejection. Before this guard a
-    // Neon blip during a tick rejected out of the timer and could terminate the
-    // process — the world must keep running, and the next tick rewrites the row.
-    const boom = async () => {
+    // database blip during a tick rejected out of the timer and could terminate
+    // the process — the world must keep running, and the next tick rewrites the row.
+    fakeSql = makeFakeSql(async () => {
       throw new Error("db down");
-    };
-    vi.mocked(neon).mockImplementationOnce(() => {
-      return Object.assign(boom, {
-        transaction: async () => {
-          throw new Error("db down");
-        },
-      }) as unknown as ReturnType<typeof neon>;
     });
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
 
@@ -123,7 +139,8 @@ describe("refreshQuestsFromStore — the board's read-through", () => {
     // per test needs no state clearing — but set the env before importing the
     // module's behaviour matters, and it is read per call.
     process.env.DATABASE_URL = "postgres://test";
-    vi.clearAllMocks();
+    fakeSql = makeFakeSql(async () => []);
+    pgSqlCalls = 0;
   });
 
   afterEach(() => {
@@ -134,28 +151,20 @@ describe("refreshQuestsFromStore — the board's read-through", () => {
 
   /** A client modelled like the persist.test.ts mock, but whose SELECT returns a row. */
   function rowDb(rowSnapshot: unknown): void {
-    vi.mocked(neon).mockImplementation(() => {
-      // refreshQuestsFromStore reads the NARROWED columns (`jsonb_typeof` guard
-      // plus `snapshot->'quests'`) — not the full row. The guard columns are
-      // what makes a wrong-shaped row refuse instead of merging as empty.
-      const parsed = (rowSnapshot ?? {}) as Record<string, unknown>;
-      const exec = (async () =>
-        rowSnapshot === null
-          ? []
-          : [
-              {
-                kind: typeof parsed === "object" && !Array.isArray(parsed) ? "object" : "other",
-                herd_kind: Array.isArray(parsed.herd) ? "array" : "other",
-                quests: parsed.quests ?? null,
-              },
-            ]) as never;
-      return Object.assign(exec as object, {
-        transaction: async <T,>(queries: unknown[]): Promise<T> => {
-          if (!Array.isArray(queries)) throw new Error("transaction() expects an array of queries");
-          return [] as T;
-        },
-      }) as never;
-    });
+    // refreshQuestsFromStore reads the NARROWED columns (`jsonb_typeof` guard
+    // plus `snapshot->'quests'`) — not the full row. The guard columns are
+    // what makes a wrong-shaped row refuse instead of merging as empty.
+    const parsed = (rowSnapshot ?? {}) as Record<string, unknown>;
+    fakeSql = makeFakeSql(async () =>
+      rowSnapshot === null
+        ? []
+        : [
+            {
+              kind: typeof parsed === "object" && !Array.isArray(parsed) ? "object" : "other",
+              herd_kind: Array.isArray(parsed.herd) ? "array" : "other",
+              quests: parsed.quests ?? null,
+            },
+          ]);
   }
 
   it("file mode is its own store: the read-through is a no-op", async () => {
@@ -163,7 +172,7 @@ describe("refreshQuestsFromStore — the board's read-through", () => {
     const world = { quests: [{ id: "q1" }] } as never;
     const ok = await refreshQuestsFromStore(neverPath, world);
     expect(ok).toBe(false);
-    expect(vi.mocked(neon)).not.toHaveBeenCalled();
+    expect(pgSqlCalls).toBe(0);
   });
 
   it("raises the board to the row: a quest the instance never saw appears, progress only moves forward", async () => {
@@ -209,7 +218,8 @@ describe("hot-save coalescing (act/say)", () => {
   beforeEach(() => {
     prevDbUrl = process.env.DATABASE_URL;
     process.env.DATABASE_URL = "postgres://test";
-    vi.clearAllMocks();
+    fakeSql = makeFakeSql(async () => []);
+    pgSqlCalls = 0;
   });
 
   afterEach(() => {
@@ -219,22 +229,16 @@ describe("hot-save coalescing (act/say)", () => {
   });
 
   it("N debounced saves inside the window land as ONE pg save of the latest state", async () => {
-    // one neon() per saveAtomically, so the call count IS the save count —
-    // three hot writes inside the window must cost the town one round trip,
-    // not three
-    vi.mocked(neon).mockImplementation(() => {
-      const exec = (async () => [] as Record<string, unknown>[]) as never;
-      return Object.assign(exec as object, {
-        transaction: async <T,>(queries: unknown[]): Promise<T> => [] as T,
-      }) as never;
-    });
+    // one saveAtomically per debounce window, so the call count IS the save
+    // count — three hot writes inside the window must cost the town one round
+    // trip, not three
     vi.useFakeTimers();
     try {
       saveDebounced(neverPath, { herd: [{ id: "a" }] }, 50);
       saveDebounced(neverPath, { herd: [{ id: "b" }] }, 50);
       saveDebounced(neverPath, { herd: [{ id: "c" }] }, 50);
       await vi.advanceTimersByTimeAsync(60);
-      expect(vi.mocked(neon)).toHaveBeenCalledTimes(1);
+      expect(pgSqlCalls).toBe(1);
     } finally {
       vi.useRealTimers();
     }
@@ -242,15 +246,10 @@ describe("hot-save coalescing (act/say)", () => {
 
   it("a save inside the window is the LATEST data, not the first caller's", async () => {
     let written: unknown = null;
-    vi.mocked(neon).mockImplementation(() => {
-      const exec = (async (strings?: TemplateStringsArray, ...values: unknown[]) => {
-        const text = strings ? strings.join("?") : "";
-        if (/INSERT INTO town_state/i.test(text)) written = JSON.parse(String(values[1]));
-        return [] as Record<string, unknown>[];
-      }) as never;
-      return Object.assign(exec as object, {
-        transaction: async <T,>(queries: unknown[]): Promise<T> => [] as T,
-      }) as never;
+    fakeSql = makeFakeSql(async (strings, ...values) => {
+      const text = strings.join("?");
+      if (/INSERT INTO town_state/i.test(text)) written = JSON.parse(String(values[1]));
+      return [];
     });
     vi.useFakeTimers();
     try {

@@ -6,9 +6,9 @@ import { clearStoreCache, mergeSnapshots, pgLoad, pgLoadQuests, pgLoadAuthFields
  *
  * The in-memory stub in pgstore.test.ts hands back `rev` as a NUMBER because
  * that test's subject is the merge, not the wire. This file's subject is the
- * wire, so its stub models @neondatabase/serverless faithfully on the ONE fact
+ * wire, so its stub models the PgSql contract faithfully on the ONE fact
  * that production hits: the bundled pg-types parser for OID 20 (int8/bigint)
- * is `parseBigInteger`, which returns the digits as a STRING. Real neon()
+ * is `parseBigInteger`, which returns the digits as a STRING. The driver
  * answers `SELECT rev ...` with `"12637"`, never 12637 — and the previous
  * coercion read that as rev 0, dropped every compare-and-swap on the floor,
  * and silently ran every production save through the retry loop and the
@@ -39,7 +39,7 @@ function fakeDb(initial?: unknown, state: DbState = { row: initial === undefined
           kind: typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? "object" : "other",
           herd_kind: Array.isArray(parsed.herd) ? "array" : "other",
           quests: parsed.quests ?? null,
-          // bigint over the neon wire: a digit STRING, like `rev`
+          // bigint over the Postgres wire: a digit STRING, like `rev`
           quest_epoch: String(typeof parsed.questEpoch === "number" ? parsed.questEpoch : 0),
         },
       ];
@@ -104,7 +104,7 @@ beforeEach(() => clearStoreCache());
 const snap = (over: Record<string, unknown>) => ({ name: "t", now: 1, ...over });
 const resident = (id: string) => ({ id });
 
-describe("rev numbers that come back as int8 strings (the neon wire)", () => {
+describe("rev numbers that come back as int8 strings (the Postgres wire)", () => {
   it("still compare-and-swaps: the write lands when the row's rev is a string", async () => {
     const db = fakeDb(snap({ herd: [resident("A")] }));
     await pgSave(db.sql, snap({ now: 2, herd: [resident("A"), resident("B")] }));

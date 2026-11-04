@@ -647,7 +647,7 @@ export function createGatewayRouter(ctx: GatewayContext): express.Router {
     const updatedQuests = updateQuestProgress(world, { act, place: result.order.place, agentId: resident.id, postKind: result.post?.kind });
     for (const q of updatedQuests) broadcast({ type: "quest", quest: q });
     // Coalesced on purpose: this is the hottest write in the town, each call
-    // re-serialises the whole 279KB row over the neon HTTP driver, and the
+    // re-serialises the whole 279KB row over the Postgres driver, and the
     // agents that call it act on a cadence of seconds. N actions inside the
     // window land as ONE save of the latest state — the broadcasts above
     // already delivered the content live, so only persistence lags behind.
