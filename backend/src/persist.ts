@@ -109,7 +109,16 @@ export function saveDebounced(path: string, data: unknown, delayMs = 800): void 
   if (debounceTimer) clearTimeout(debounceTimer);
   debounceTimer = setTimeout(async () => {
     if (pendingPath && pendingData) {
-      await saveAtomically(pendingPath, pendingData);
+      // A debounced save has no caller to catch it. Letting a transient store
+      // failure reject here used to become an unhandled rejection, which takes
+      // the whole process down — a database blip must not stop the town. The
+      // next act or tick writes the full world again, so logging and moving on
+      // is the honest recovery.
+      try {
+        await saveAtomically(pendingPath, pendingData);
+      } catch (e) {
+        console.error("[persist] debounced save failed:", e instanceof Error ? e.message : e);
+      }
     }
     debounceTimer = null;
   }, delayMs);

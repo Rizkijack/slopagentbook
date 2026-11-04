@@ -49,35 +49,60 @@ if (process.env.DATABASE_URL) {
     const { ensureSchema } = await import("./pgstore.js");
     await ensureSchema(neon(process.env.DATABASE_URL));
   } catch (e) {
-    console.error("[persist] ensureSchema failed, booting ephemeral world:", e);
+    console.error("[persist] ensureSchema failed; boot will refuse if the store cannot be read:", e);
   }
 }
 
 // Load or create world
 let world: TownSnapshot;
-// A file that exists but will not parse is a DIFFERENT case from no file at all.
-// Falling back to createInitialWorld() there started a fresh town and then, 800ms
-// later, the autosave wrote that over the real one — silent total loss. Refuse to
-// boot on an unreadable save instead; the operator moves it aside and starts again.
-if (existsSync(DATA_PATH)) {
+let freshBoot = false;
+// A store that exists but will not parse is a DIFFERENT case from no store at
+// all. Falling back to createInitialWorld() there started a fresh town and then,
+// 800ms later, the autosave wrote that over the real one — silent total loss.
+// Refuse to boot on an unreadable save instead; the operator moves it aside and
+// starts again.
+//
+// `DATABASE_URL` means the store IS the database, and `/tmp/town.json` is only a
+// per-instance scratch path. Its absence on a cold serverless start says nothing
+// about whether the town has been saved, so the database must be consulted even
+// when the file does not exist — otherwise every cold start seeds a new town and
+// the next autosave writes it over the real row.
+const usingDatabase = Boolean(process.env.DATABASE_URL);
+if (usingDatabase || existsSync(DATA_PATH)) {
   let loaded: TownSnapshot | null = null;
   try {
     loaded = await loadWithRecovery(DATA_PATH) as TownSnapshot;
   } catch (e) {
-    console.error(
-      `[persist] ${DATA_PATH} exists but could not be read. Refusing to boot so the save is not overwritten.`,
-    );
-    console.error(e instanceof Error ? e.message : String(e));
-    console.error("Move it aside (e.g. rename to .broken) and restart, or delete it to start a new town.");
-    process.exit(1);
+    // An empty database is a fresh deployment. A file path never gets this
+    // escape hatch: `loadWithRecovery` reports a corrupt existing file as the
+    // same "no data at" error, and seeding over it is the silent total loss the
+    // file branch exists to prevent. Every other failure — bad credentials, an
+    // unreachable database, a corrupt row — refuses the boot for the same
+    // reason: seeding now and autosaving afterwards would overwrite the real
+    // town with a fresh one.
+    const emptyStore = usingDatabase && e instanceof Error && e.message.startsWith("no data at ");
+    if (!emptyStore) {
+      console.error(
+        `[persist] store could not be read${existsSync(DATA_PATH) ? ` (${DATA_PATH})` : ""}. Refusing to boot so the save is not overwritten.`,
+      );
+      console.error(e instanceof Error ? e.message : String(e));
+      console.error("Fix the store, or move the save aside and restart, or delete it to start a new town.");
+      process.exit(1);
+    }
   }
-  if (!loaded || !Array.isArray(loaded.herd) || !loaded.config) {
-    console.error(`[persist] ${DATA_PATH} is missing herd or config. Refusing to boot rather than overwriting it.`);
-    process.exit(1);
+  if (loaded) {
+    if (!Array.isArray(loaded.herd) || !loaded.config) {
+      console.error(`[persist] ${DATA_PATH} is missing herd or config. Refusing to boot rather than overwriting it.`);
+      process.exit(1);
+    }
+    world = loaded;
+  } else {
+    world = createInitialWorld();
+    freshBoot = true;
   }
-  world = loaded;
 } else {
   world = createInitialWorld();
+  freshBoot = true;
 }
 
 // Trim relationship maps already over the cap in a pre-cap save. Writes prune on
@@ -90,13 +115,15 @@ if (world.quests.length === 0) {
   world.quests = createInitialQuests(world);
 }
 
-// In production, a fresh boot is a quiet field (8 seeded residents). That
-// does not serve a watchable town, so on a non-test boot we move the herd up
-// to around fifty, using the distinct names in world.ts. Test fixtures import
-// this module directly and assert exact herd sizes, so the padding is gated on
-// NODE_ENV !== "test".
+// In production, a FRESH boot is a quiet field (8 seeded residents). That does
+// not serve a watchable town, so on a non-test boot we move it up to around
+// fifty, using the distinct names in world.ts. Only a fresh boot is padded: a
+// saved town carries the residents it already has (and the reduction stamp that
+// trims the initial herd), so padding a loaded town would add strangers on every
+// cold start. Test fixtures import this module directly and assert exact herd
+// sizes, so the padding is also gated on NODE_ENV !== "test".
 const FRESH_BOOT_HERD = 58;
-if (process.env.NODE_ENV !== "test" && world.herd.length < FRESH_BOOT_HERD) {
+if (freshBoot && process.env.NODE_ENV !== "test" && world.herd.length < FRESH_BOOT_HERD) {
   const grown = createInitialWorld(FRESH_BOOT_HERD).herd;
   const have = new Set(world.herd.map((h) => h.name.toLowerCase()));
   for (const resident of grown) {

@@ -87,6 +87,29 @@ describe("persist pg routing (DATABASE_URL set)", () => {
     await expect(loadWithRecovery(neverPath)).rejects.toThrow(/no data at/);
     expect(vi.mocked(neon)).toHaveBeenCalled();
   });
+
+  it("a failed debounced save is caught, not left as an unhandled rejection", async () => {
+    // The debounce timer has no caller to catch a rejection. Before this guard a
+    // Neon blip during a tick rejected out of the timer and could terminate the
+    // process — the world must keep running, and the next tick rewrites the row.
+    const boom = async () => {
+      throw new Error("db down");
+    };
+    vi.mocked(neon).mockImplementationOnce(() => {
+      return Object.assign(boom, {
+        transaction: async () => {
+          throw new Error("db down");
+        },
+      }) as unknown as ReturnType<typeof neon>;
+    });
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    saveDebounced(neverPath, { herd: [] }, 0);
+    await new Promise((r) => setTimeout(r, 100));
+
+    expect(logged).toHaveBeenCalledWith("[persist] debounced save failed:", expect.stringContaining("db down"));
+    logged.mockRestore();
+  });
 });
 
 describe("refreshQuestsFromStore — the board's read-through", () => {

@@ -1,0 +1,66 @@
+import { describe, it, expect, vi, afterAll } from "vitest";
+import os from "os";
+import path from "path";
+import { createInitialWorld } from "../src/world.js";
+
+// Vercel cold starts have no `/tmp/town.json`. The boot used to gate the store
+// read on `existsSync(DATA_PATH)`, so on a cold instance it never consulted
+// Postgres: it seeded a fresh town and the next autosave wrote that over the
+// real row. The regression: a stored snapshot must win even when the scratch
+// file does not exist.
+const stored = createInitialWorld();
+stored.herd[0]!.id = "stored-one";
+stored.herd[0]!.name = "Stored One";
+// A real saved town has already been through the one-shot herd reduction and
+// carries its stamp. Without it this fixture would be trimmed back to 20 and
+// would hide the padding bug instead of exposing it.
+(stored.config as unknown as Record<string, unknown>).herdReduced20261030 = "v2";
+
+vi.mock("@neondatabase/serverless", () => ({
+  neon: vi.fn(() => {
+    // pgLoad runs `SELECT snapshot, rev FROM town_state WHERE id = ...`; every
+    // other statement (ensureSchema, a stray save) tolerates the same row.
+    const exec = async () => [{ snapshot: stored, rev: 7 }];
+    return Object.assign(exec, {
+      // neon's transaction takes either a callback or an ARRAY of queries.
+      // pgSave uses the array form and reads result[1] as the updated rows.
+      transaction: async (arg: unknown) =>
+        Array.isArray(arg) ? [[], [{ rev: 8 }]] : (arg as (tx: typeof exec) => Promise<unknown>)(exec),
+    });
+  }),
+}));
+
+process.env.DATABASE_URL = "postgres://test";
+process.env.DATA_PATH = path.join(os.tmpdir(), `slab-pg-boot-${Date.now()}`, "town.json");
+// Production-like, so the fresh-boot padding path is live and can prove it does
+// NOT touch a loaded town. Saved and restored: workers reuse their process
+// environment, and leaking `production` would change herd padding in another
+// test file's boot.
+const previousNodeEnv = process.env.NODE_ENV;
+const previousDatabaseUrl = process.env.DATABASE_URL;
+const previousDataPath = process.env.DATA_PATH;
+process.env.NODE_ENV = "production";
+
+const { world } = await import("../src/server.js");
+
+describe("boot reads the database when the scratch file is absent", () => {
+  it("serves the stored snapshot instead of seeding a fresh town", () => {
+    expect(world.herd.some((h) => h.id === "stored-one")).toBe(true);
+  });
+
+  it("does not pad a loaded town up to the fresh-boot herd size", () => {
+    // `createInitialWorld()` seeds 8; the house bots add 3. The 58-resident
+    // padding belongs to a FRESH boot only — otherwise every cold start would
+    // add strangers to a saved town.
+    expect(world.herd.length).toBeLessThan(58);
+  });
+});
+
+afterAll(() => {
+  if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+  else process.env.NODE_ENV = previousNodeEnv;
+  if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+  else process.env.DATABASE_URL = previousDatabaseUrl;
+  if (previousDataPath === undefined) delete process.env.DATA_PATH;
+  else process.env.DATA_PATH = previousDataPath;
+});

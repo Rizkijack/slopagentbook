@@ -14,12 +14,12 @@ const DATA = path.join(dir, "town.json");
 process.env.DATA_PATH = DATA;
 process.env.NODE_ENV = "test";
 
-async function boot(): Promise<{ code: number | null; stderr: string[] }> {
+async function boot(overrides: Record<string, string> = {}): Promise<{ code: number | null; stderr: string[] }> {
   const { spawn } = await import("node:child_process");
   const stderr: string[] = [];
   const child = spawn(process.execPath, ["dist/index.js"], {
     cwd: path.resolve(import.meta.dirname, ".."),
-    env: { ...process.env, NODE_ENV: "", PORT: "0" },
+    env: { ...process.env, NODE_ENV: "", PORT: "0", ...overrides },
     stdio: ["ignore", "ignore", "pipe"],
   });
   child.stderr.on("data", (d) => stderr.push(String(d)));
@@ -45,6 +45,23 @@ describe("boot refuses an unreadable save", () => {
     // the whole point: the file it refused to trust is still exactly as it was
     expect(readFileSync(DATA, "utf8")).toBe(broken);
   }, 20000);
+});
+
+describe("boot consults the store even when the scratch file is absent", () => {
+  it("refuses instead of seeding a fresh town when DATABASE_URL is set but unreadable", async () => {
+    // Vercel cold starts leave `/tmp/town.json` absent, so the old
+    // `existsSync(DATA_PATH)` gate skipped the Postgres load entirely: every
+    // cold start seeded a new town and the autosave wrote it over the real row.
+    // With DATABASE_URL set the store is the database, so a failed read must
+    // refuse the boot — never fall through to createInitialWorld().
+    const { code, stderr } = await boot({
+      DATA_PATH: path.join(dir, "never-written.json"),
+      DATABASE_URL: "postgres://user:pass@127.0.0.1:1/nope",
+    });
+
+    expect(code).toBe(1);
+    expect(stderr.join("")).toContain("Refusing to boot");
+  }, 30000);
 });
 
 // afterAll, not the describe body: a statement in the body runs during collection,
