@@ -5,7 +5,7 @@ import type { TownSnapshot, Resident } from "@slopagentbook/shared";
 import { Hc, rf, encodeGenes } from "@slopagentbook/shared";
 import { defaultConfig, pruneRelationships } from "@slopagentbook/shared";
 import { saveAtomically, saveDebounced, flushDebounced, refreshQuestsFromStore, tickSaveDue } from "./persist.js";
-import { normalizeHerd, dedupeFactions } from "./pgstore.js";
+import { normalizeHerd, dedupeFactions, planRemoval, applyRemoval } from "./pgstore.js";
 import { createInitialWorld, makeResidentFromFork, generateEdition, generateWeatherEvent } from "./world.js";
 import { loadWithRecovery } from "./persist.js";
 import { updateQuestProgress, claimQuest, refreshExpiredQuests, generateQuest, createInitialQuests, questRewardInfo } from "./quests.js";
@@ -17,7 +17,7 @@ import { createScheduler } from "./scheduler.js";
 import { runTurn } from "./turn.js";
 import { createGatewayRouter } from "./gateway.js";
 import { createBrawlRouter } from "./brawl.js";
-import { ensureHouseResidents, HOUSE_AGENTS } from "./houseagents.js";
+import { ensureHouseResidents, isHouseAgent, HOUSE_AGENTS } from "./houseagents.js";
 import { retireResolved, tickTournament, type TournamentEvent } from "./tournament.js";
 // shared helpers — single definitions live in agents.ts (dedup with gateway.ts)
 import { CONTROL_CHARS, clientIp, createRateLimiter, pickNextSimId, parseProfileUrl, parseProfileLinks, verifyToken, AgentError } from "./agents.js";
@@ -183,6 +183,27 @@ export function applyRebrand(config: Record<string, unknown>): string[] {
 const rebranded = applyRebrand(world.config as unknown as Record<string, unknown>);
 if (rebranded.length > 0) {
   console.log(`[boot] rebranded ${rebranded.join(", ")} -> ${world.config.name} (${world.config.ticker})`);
+  saveDebounced(DATA_PATH, world, 0);
+}
+
+/**
+ * The total pasture moved from 200 to 2000: 20 built-in residents plus room
+ * for the agent herd that registers through /api/agent/join and MCP. The
+ * built-in bot herd is capped separately by `reconcileBuiltinHerd`.
+ *
+ * Same rule as the brand and chain reconciliations: only a town still carrying
+ * the EXACT previous default (200) is raised, so a cap set deliberately by an
+ * operator is left alone. A saved town keeps its own config, which is why
+ * editing `defaultConfig` alone is not enough.
+ */
+export function applyHerdCapDefault(config: Record<string, unknown>): boolean {
+  if (config.maxHerd !== 200) return false;
+  config.maxHerd = defaultConfig.maxHerd;
+  return true;
+}
+
+if (applyHerdCapDefault(world.config as unknown as Record<string, unknown>)) {
+  console.log(`[boot] herd cap raised 200 -> ${world.config.maxHerd}`);
   saveDebounced(DATA_PATH, world, 0);
 }
 
@@ -422,10 +443,12 @@ if (treasuried.length > 0) {
   saveDebounced(DATA_PATH, world, 0);
 }
 
-// Capacity is operator-controlled and stays at the default (`maxHerd` 200).
-// What the operator asked for on 2026-10-30 is a reduction of the herd the
-// row currently holds (61 probe-era residents) down to 20 — a one-shot change
-// of the town's contents, not of the cap, so new joins still have pasture.
+// Capacity is operator-controlled and starts at 2000 (`maxHerd`). What the
+// operator asked for on 2026-10-30 is a reduction of the herd the row currently
+// holds (61 probe-era residents) down to 20 — a one-shot change of the town's
+// contents, not of the cap, so new joins still have pasture. The cap was later
+// raised to 2000; the built-in 20 is enforced separately by
+// `reconcileBuiltinHerd`.
 //
 // One-shot means a marker, not an exact-previous value: there is no old value
 // to match on, the herd is dynamic state. Without a stamp the trim would fire
@@ -496,6 +519,85 @@ export function reduceActiveHerd(world: TownSnapshot): boolean {
   return true;
 }
 
+/** Total pasture for the built-in bot herd, house bots included. */
+export const BUILTIN_HERD_TARGET = 20;
+
+/**
+ * A built-in bot is a gen-0, parentless resident that was not registered
+ * through /api/agent/join (or MCP) and is not one of the three house bots.
+ * External agents, user forks and house bots are never part of this pool, so
+ * this is the only class the built-in cap may ever trim.
+ */
+export function isBuiltinSeedBot(world: TownSnapshot, resident: Resident): boolean {
+  if (resident.mind?.control === "external") return false;
+  if (isHouseAgent(resident.id)) return false;
+  if ((resident.gen ?? 0) !== 0) return false;
+  if (resident.parent) return false;
+  const registered = Array.isArray(world.agents)
+    && world.agents.some((a) => a.residentId === resident.id);
+  return !registered;
+}
+
+/**
+ * Keep the built-in bot herd at `target` (20, house bots included).
+ *
+ * The pre-fix cold-start bug seeded a new 58-resident town on every boot; the
+ * additive merge unioned the survivors into the row, so production reached 52
+ * gen-0 seed bots even though the one-shot 2026-10-30 reduction targeted 20.
+ * That trim was memory-only and left no tombstones, so the merge put every
+ * dropped resident straight back.
+ *
+ * The pool here is deliberately narrow: only gen-0, parentless residents that
+ * are neither registered agents nor house bots. Every external agent and every
+ * user fork is preserved. The OLDEST seeds survive, because they are the
+ * town's actual history; any seed that is the parent of a live fork is kept
+ * too, so lineage is never left dangling. Each removal goes through the tested
+ * `planRemoval`/`applyRemoval` path, which writes the tombstones that make the
+ * trim durable across instances.
+ *
+ * Idempotent: once the pool is at or below target this is a no-op, so it needs
+ * no stamp and will hold the line if a future bug ever seeds extras again.
+ */
+export function reconcileBuiltinHerd(world: TownSnapshot, target = BUILTIN_HERD_TARGET): boolean {
+  const bots = world.herd.filter((h) => isHouseAgent(h.id));
+  const seeds = world.herd.filter((h) => isBuiltinSeedBot(world, h));
+  const seedTarget = Math.max(0, target - bots.length);
+  if (seeds.length <= seedTarget) return false;
+
+  const keep = new Set(
+    [...seeds]
+      .sort((a, b) => (a.born ?? 0) - (b.born ?? 0) || String(a.id).localeCompare(String(b.id)))
+      .slice(0, seedTarget)
+      .map((h) => h.id),
+  );
+  // A fork's parent must not be tombstoned; planRemoval would refuse anyway,
+  // but keeping it here makes the resulting count honest instead of a skip.
+  for (const h of world.herd) {
+    if (h.parent && seeds.some((s) => s.id === h.parent)) keep.add(h.parent);
+  }
+
+  let removed = 0;
+  const skipped: string[] = [];
+  for (const seed of seeds) {
+    if (keep.has(seed.id)) continue;
+    const plan = planRemoval(world, seed.id);
+    if (!plan.ok) {
+      skipped.push(`${seed.name} (${plan.blockedBy ?? "blocked"})`);
+      continue;
+    }
+    Object.assign(world, applyRemoval(world, plan, "builtin-herd-cap"));
+    removed++;
+  }
+  if (removed > 0 || skipped.length > 0) {
+    console.log(
+      `[boot] builtin herd ${seeds.length} -> ${seeds.length - removed} seed bots ` +
+        `(target ${target} incl. ${bots.length} house bots)` +
+        (skipped.length ? `; skipped ${skipped.join(", ")}` : ""),
+    );
+  }
+  return removed > 0;
+}
+
 // The bots must exist BEFORE the reduction so the pins can catch them: see
 // reduceActiveHerd. Seeding here also predates the scheduler build below, so
 // the bots join the rotation and are driven by the sim like every other
@@ -503,6 +605,14 @@ export function reduceActiveHerd(world: TownSnapshot): boolean {
 ensureHouseResidents(world);
 
 reduceActiveHerd(world);
+
+// The one-shot reduction above was memory-only and its survivors were re-unioned
+// by the next save, which is how the built-in herd reached 52. This pass is
+// idempotent and tombstones what it removes, so it holds the 20-bot line from
+// now on while leaving every registered agent and user fork untouched.
+if (reconcileBuiltinHerd(world)) {
+  saveDebounced(DATA_PATH, world, 0);
+}
 
 // Factions are seeded lore, unique by name. The pre-fix cold-start bug seeded a
 // new one on every boot, and the additive merge kept all of them (177 identical

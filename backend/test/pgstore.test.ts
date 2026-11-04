@@ -515,6 +515,17 @@ describe("mergeSnapshots", () => {
     expect(factions[0]!.members).toEqual(["A", "B"]);
   });
 
+  it("does not let a stale 200 cap undo the 2000 migration", () => {
+    const stored = snap({ config: { name: "S", maxHerd: 2000 } });
+    const mine = snap({ config: { name: "S", maxHerd: 200 } });
+    const merged = mergeSnapshots(stored, mine) as Snap;
+
+    expect((merged.config as Snap).maxHerd).toBe(2000);
+    // a deliberately set cap is still writer-wins
+    const custom = mergeSnapshots(stored, snap({ config: { name: "S", maxHerd: 64 } })) as Snap;
+    expect((custom.config as Snap).maxHerd).toBe(64);
+  });
+
   it("unions the feed newest-first under the cap", () => {
     const stored = snap({ feed: [post("p1", 100), post("p2", 200)] });
     const mine = snap({ feed: [post("p3", 300)] });

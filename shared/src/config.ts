@@ -216,5 +216,8 @@ export const defaultConfig: TownConfig = {
   // a model was wired and quietly failing.
   brain: "sim",
   forkCost: "Free",
-  maxHerd: 200,
+  // 20 built-in residents plus up to 1980 registered agents/forks and other
+  // residents. The built-in bot herd itself is capped separately (see
+  // reconcileBuiltinHerd in server.ts); this is only the total pasture.
+  maxHerd: 2000,
 };

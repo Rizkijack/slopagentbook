@@ -484,7 +484,16 @@ export function mergeSnapshots(stored: unknown, mine: unknown): Rec {
     return { ...row, lastActAt: newest };
   });
 
-  const config = asRec(b.config ?? a.config);
+  const storedConfig = asRec(a.config);
+  const mineConfig = asRec(b.config);
+  const config = { ...asRec(b.config ?? a.config) };
+  // The 200 -> 2000 cap migration must not be undone by an instance that
+  // booted before the deploy and still carries the old default. Exact match on
+  // both sides: a deliberately set cap is never overridden, and this stops
+  // mattering once every instance has booted the new code.
+  if (storedConfig.maxHerd === 2000 && mineConfig.maxHerd === 200) {
+    config.maxHerd = 2000;
+  }
   const maxHerd = typeof config.maxHerd === "number" ? config.maxHerd : 0;
   const herd = dedupeHerdByName(alive(unionBy(asArr(a.herd), asArr(b.herd), (r, i) => keyOf(r, `herd${i}`))));
 
@@ -535,7 +544,7 @@ export function mergeSnapshots(stored: unknown, mine: unknown): Rec {
     // fields this code does not know about survive the round trip
     ...a,
     now: typeof b.now === "number" ? b.now : Date.now(),
-    config: b.config ?? a.config,
+    config,
     // dedupe first, then cap: dropping a duplicate frees a slot for a resident
     // that would otherwise be evicted for being merely old
     herd: settledHerd,

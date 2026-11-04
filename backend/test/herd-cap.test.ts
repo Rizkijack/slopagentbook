@@ -1,6 +1,16 @@
 import { describe, it, expect } from "vitest";
 import { defaultConfig, type TownSnapshot } from "@slopagentbook/shared";
-import { reduceActiveHerd, trimToTargetKeepingBots, HERD_REDUCTION_STAMP } from "../src/server.js";
+import {
+  reduceActiveHerd,
+  trimToTargetKeepingBots,
+  HERD_REDUCTION_STAMP,
+  applyHerdCapDefault,
+  reconcileBuiltinHerd,
+  isBuiltinSeedBot,
+  BUILTIN_HERD_TARGET,
+} from "../src/server.js";
+import { createInitialWorld, createAgentResident } from "../src/world.js";
+import { ensureHouseResidents } from "../src/houseagents.js";
 import { normalizeHerd } from "../src/pgstore.js";
 
 /**
@@ -107,5 +117,113 @@ describe("trimToTargetKeepingBots", () => {
     const world = makeWorld(SIXTY_ONE.slice(0, 8));
     expect(trimToTargetKeepingBots(world, 20)).toBe(false);
     expect(world.herd.length).toBe(8);
+  });
+});
+
+describe("applyHerdCapDefault (200 -> 2000)", () => {
+  it("raises the exact old default", () => {
+    const config: Record<string, unknown> = { maxHerd: 200 };
+    expect(applyHerdCapDefault(config)).toBe(true);
+    expect(config.maxHerd).toBe(2000);
+  });
+
+  it("leaves a deliberately set cap alone", () => {
+    for (const cap of [64, 500, 2000, 5000]) {
+      const config: Record<string, unknown> = { maxHerd: cap };
+      expect(applyHerdCapDefault(config)).toBe(false);
+      expect(config.maxHerd).toBe(cap);
+    }
+    expect(applyHerdCapDefault({})).toBe(false);
+  });
+});
+
+describe("reconcileBuiltinHerd — bot herd 20, residents untouched", () => {
+  function sweepWorld() {
+    const world = createInitialWorld(40);
+    world.config = { ...defaultConfig, maxHerd: 2000 };
+    world.herd.forEach((r, i) => {
+      r.born = 1000 + i;
+      r.gen = 0;
+      r.parent = undefined;
+    });
+    ensureHouseResidents(world);
+    // The money/contest guards are covered by removal.test.ts; keep this
+    // fixture focused on the bot/resident split.
+    (world as unknown as Record<string, unknown>).vaults = [];
+    (world as unknown as Record<string, unknown>).trades = [];
+    (world as unknown as Record<string, unknown>).ledger = [];
+    (world as unknown as Record<string, unknown>).callers = [];
+    (world as unknown as Record<string, unknown>).contests = [];
+
+    const externals = Array.from({ length: 5 }, (_, i) => {
+      const r = createAgentResident({ name: `Agent${i}`, handle: `agent${i}` });
+      r.mind.control = "external";
+      r.born = 5000 + i;
+      return r;
+    });
+    const forks = [0, 1, 2].map((n) => {
+      const parent = world.herd[n]!;
+      return {
+        ...parent,
+        id: `fork${n}`,
+        name: `Fork${n}`,
+        gen: 1,
+        parent: parent.id,
+        born: 9000 + n,
+        mind: { ...parent.mind, control: undefined },
+      } as (typeof world.herd)[number];
+    });
+    world.herd.push(...externals, ...forks);
+    (world as unknown as Record<string, unknown>).agents = externals.map((r, i) => ({
+      id: `ag${i}`,
+      residentId: r.id,
+      tokenHash: `h${i}`,
+      origin: "test",
+      joinedAt: 1,
+      lastActAt: 1,
+    }));
+    return { world, externals, forks };
+  }
+
+  it("keeps 17 oldest seed bots + 3 house bots, and every external agent and fork", () => {
+    const { world, externals, forks } = sweepWorld();
+    expect(world.herd.length).toBe(51);
+    expect(reconcileBuiltinHerd(world)).toBe(true);
+
+    const ids = new Set(world.herd.map((h) => h.id));
+    expect(world.herd.length).toBe(BUILTIN_HERD_TARGET + externals.length + forks.length);
+    expect(world.herd.filter((h) => isBuiltinSeedBot(world, h))).toHaveLength(17);
+    for (const bot of ["house-ledger", "house-hearth", "house-wren"]) expect(ids.has(bot)).toBe(true);
+    for (const a of externals) {
+      expect(ids.has(a.id), `external ${a.name} must survive`).toBe(true);
+      expect(world.herd.find((h) => h.id === a.id)!.mind.control).toBe("external");
+    }
+    for (const f of forks) {
+      expect(ids.has(f.id), `fork ${f.name} must survive`).toBe(true);
+      expect(ids.has(f.parent!), `fork parent ${f.parent} must survive`).toBe(true);
+    }
+    expect((world.tombstones ?? []).length).toBe(23);
+
+    const after = world.herd.length;
+    expect(reconcileBuiltinHerd(world)).toBe(false);
+    expect(world.herd.length).toBe(after);
+  });
+
+  it("is a no-op under the target", () => {
+    const world = createInitialWorld(10);
+    world.config = { ...defaultConfig, maxHerd: 2000 };
+    ensureHouseResidents(world);
+    expect(world.herd.filter((h) => isBuiltinSeedBot(world, h))).toHaveLength(10);
+    expect(reconcileBuiltinHerd(world)).toBe(false);
+    expect(world.herd.length).toBe(13);
+  });
+
+  it("classifies house bots, external agents and forks as non-bots", () => {
+    const { world, externals, forks } = sweepWorld();
+    expect(isBuiltinSeedBot(world, world.herd.find((h) => h.id === "house-ledger")!)).toBe(false);
+    expect(isBuiltinSeedBot(world, externals[0]!)).toBe(false);
+    expect(isBuiltinSeedBot(world, forks[0]!)).toBe(false);
+    const seed = world.herd.find((h) => (h.gen ?? 0) === 0 && !h.id.startsWith("house-"))!;
+    expect(isBuiltinSeedBot(world, seed)).toBe(true);
   });
 });
