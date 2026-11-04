@@ -464,7 +464,11 @@ if (treasuried.length > 0) {
   console.log(
     `[boot] treasury address reconciled ${treasuried.join(", ")} -> ${world.config.treasuryAddress}`,
   );
-  saveDebounced(DATA_PATH, world, 0);
+  // AWAITED, like the chain retarget: on serverless the boot timer never fires
+  // before the instance is frozen, so the row kept the retired address while
+  // memory served the new one — observed live, snapshot said 0x8237… and both
+  // database rows still said Ercx6e….
+  await saveAtomically(DATA_PATH, world);
 }
 
 // Capacity is operator-controlled and starts at 5000 (`maxHerd`). What the
