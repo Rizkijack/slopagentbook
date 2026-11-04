@@ -48,6 +48,7 @@ function fakeDb(options: { fail?: boolean; row?: unknown } = {}): FakeDb {
 vi.mock("../src/pgsql.js", () => {
   const configured = () => Boolean(process.env.DATABASE_URL || process.env.FALLBACK_DATABASE_URL);
   return {
+    primaryUrl: () => process.env.PRIMARY_DATABASE_URL ?? process.env.DATABASE_URL ?? null,
     hasDatabase: configured,
     pgSql: () => primaryDb.sql,
     fallbackPgSql: () => fallbackDb.sql,

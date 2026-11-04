@@ -123,13 +123,29 @@ function sqlFor(url: string): PgSql {
   return createPgSql(poolFor(url) as unknown as PgPoolLike);
 }
 
+/**
+ * Primary connection URL.
+ *
+ * `PRIMARY_DATABASE_URL` wins when present. That indirection exists because a
+ * marketplace integration on this project (the Neon resource) re-injects
+ * `DATABASE_URL` into every deployment, silently overwriting the operator's
+ * value — observed live: a Supabase URL was set, a fresh build booted, and the
+ * store log still read the Neon host. A key the integration does not own cannot
+ * be clobbered; plain `DATABASE_URL` stays supported for local use and for
+ * deployments that have no integration attached.
+ */
+export function primaryUrl(): string | null {
+  const url = process.env.PRIMARY_DATABASE_URL?.trim() || process.env.DATABASE_URL?.trim();
+  return url || null;
+}
+
 export function hasDatabase(): boolean {
-  return Boolean(process.env.DATABASE_URL || process.env.FALLBACK_DATABASE_URL);
+  return Boolean(primaryUrl() || process.env.FALLBACK_DATABASE_URL);
 }
 
 export function pgSql(): PgSql {
-  const url = process.env.DATABASE_URL;
-  if (!url) throw new Error("DATABASE_URL is not set");
+  const url = primaryUrl();
+  if (!url) throw new Error("PRIMARY_DATABASE_URL (or DATABASE_URL) is not set");
   return sqlFor(url);
 }
 
@@ -143,7 +159,7 @@ export function fallbackPgSql(): PgSql | null {
  * the fallback is dropped rather than mirror-writing every save onto itself.
  */
 export function databaseTargets(): DbTarget[] {
-  const primary = process.env.DATABASE_URL;
+  const primary = primaryUrl();
   const fallback = process.env.FALLBACK_DATABASE_URL;
   const targets: DbTarget[] = [];
   if (primary) targets.push({ role: "primary", sql: sqlFor(primary) });

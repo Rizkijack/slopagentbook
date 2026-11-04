@@ -65,6 +65,7 @@ vi.mock("../src/pgsql.js", () => {
     return fakeSql;
   };
   return {
+    primaryUrl: () => process.env.PRIMARY_DATABASE_URL ?? process.env.DATABASE_URL ?? null,
     hasDatabase: configured,
     pgSql: pgSqlFn,
     fallbackPgSql: () => null,

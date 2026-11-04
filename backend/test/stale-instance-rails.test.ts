@@ -126,6 +126,7 @@ vi.mock("../src/pgsql.js", () => {
   });
   const configured = () => Boolean(process.env.DATABASE_URL || process.env.FALLBACK_DATABASE_URL);
   return {
+    primaryUrl: () => process.env.PRIMARY_DATABASE_URL ?? process.env.DATABASE_URL ?? null,
     hasDatabase: configured,
     databaseTargets: () => (configured() ? [{ role: "primary", sql }] : []),
     pgSql: () => sql,

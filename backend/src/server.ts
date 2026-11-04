@@ -6,7 +6,7 @@ import { Hc, rf, encodeGenes } from "@slopagentbook/shared";
 import { defaultConfig, pruneRelationships, HERD_CAP_PREVIOUS } from "@slopagentbook/shared";
 import { saveAtomically, saveDebounced, flushDebounced, refreshQuestsFromStore, tickSaveDue } from "./persist.js";
 import { normalizeHerd, dedupeFactions, planRemoval, applyRemoval, ensureSchema } from "./pgstore.js";
-import { databaseTargets, hasDatabase } from "./pgsql.js";
+import { databaseTargets, hasDatabase, primaryUrl } from "./pgsql.js";
 import { createInitialWorld, makeResidentFromFork, generateEdition, generateWeatherEvent } from "./world.js";
 import { loadWithRecovery } from "./persist.js";
 import { updateQuestProgress, claimQuest, refreshExpiredQuests, generateQuest, createInitialQuests, questRewardInfo } from "./quests.js";
@@ -52,7 +52,7 @@ if (hasDatabase()) {
     try { return url ? new URL(url).hostname : "unset"; } catch { return "unparseable"; }
   };
   console.log(
-    `[persist] stores: primary=${hostOf(process.env.DATABASE_URL)} fallback=${hostOf(process.env.FALLBACK_DATABASE_URL)}`,
+    `[persist] stores: primary=${hostOf(primaryUrl() ?? undefined)} fallback=${hostOf(process.env.FALLBACK_DATABASE_URL)}`,
   );
   // Prepare every configured store. A quota-blocked primary must not stop the
   // standby from booting; the load path below picks whichever answers.

@@ -42,6 +42,7 @@ vi.mock("../src/pgsql.js", () => {
     },
   );
   return {
+    primaryUrl: () => process.env.PRIMARY_DATABASE_URL ?? process.env.DATABASE_URL ?? null,
     hasDatabase: () => true,
     databaseTargets: () => [{ role: "primary", sql: exec }],
     pgSql: () => exec,

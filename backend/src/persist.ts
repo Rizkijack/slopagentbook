@@ -3,7 +3,7 @@ import { open } from "fs/promises";
 import { readFile } from "fs/promises";
 import { existsSync } from "fs";
 import { dirname } from "path";
-import { databaseTargets, fallbackPgSql, hasDatabase, pgSql, type DbRole, type DbTarget } from "./pgsql.js";
+import { databaseTargets, fallbackPgSql, hasDatabase, pgSql, primaryUrl, type DbRole, type DbTarget } from "./pgsql.js";
 import type { TownSnapshot } from "@slopagentbook/shared";
 import { pgLoad, pgLoadMeta, pgSave, pgLoadQuests, pgLoadAuthFields, mergeSnapshots, mergeQuests, type PgQuery } from "./pgstore.js";
 
@@ -17,7 +17,7 @@ export { pgSql, fallbackPgSql };
  * primary again. Reads and writes both follow this role, so a failover does not
  * leave half the process on a dead database.
  */
-let activeRole: DbRole = process.env.DATABASE_URL ? "primary" : "fallback";
+let activeRole: DbRole = primaryUrl() ? "primary" : "fallback";
 let primaryRetryAt = 0;
 const PRIMARY_RETRY_MS = 60_000;
 
