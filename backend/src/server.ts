@@ -45,6 +45,15 @@ function resolveDataPath(): string {
 const DATA_PATH = resolveDataPath();
 
 if (hasDatabase()) {
+  // Which stores this instance is actually talking to, by HOST only — never the
+  // URL or password. A deployment that keeps writing the retired provider looks
+  // identical from the outside, and this is the one line that tells them apart.
+  const hostOf = (url: string | undefined): string => {
+    try { return url ? new URL(url).hostname : "unset"; } catch { return "unparseable"; }
+  };
+  console.log(
+    `[persist] stores: primary=${hostOf(process.env.DATABASE_URL)} fallback=${hostOf(process.env.FALLBACK_DATABASE_URL)}`,
+  );
   // Prepare every configured store. A quota-blocked primary must not stop the
   // standby from booting; the load path below picks whichever answers.
   for (const target of databaseTargets()) {
