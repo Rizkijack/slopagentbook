@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { createPgSql, type PgPoolLike } from "../src/pgsql.js";
+import { createPgSql, sslOptions, type PgPoolLike } from "../src/pgsql.js";
 
 function fakePool() {
   const poolQueries: Array<{ text: string; values?: unknown[] }> = [];
@@ -85,5 +85,31 @@ describe("createPgSql — transaction(array)", () => {
     );
     expect(clientQueries.map((q) => q.text)).toEqual(["BEGIN", "ROLLBACK"]);
     expect(release).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("sslOptions — verification per provider", () => {
+  const prev = process.env.PG_SSL_VERIFY;
+  afterEach(() => {
+    if (prev === undefined) delete process.env.PG_SSL_VERIFY;
+    else process.env.PG_SSL_VERIFY = prev;
+  });
+
+  it("keeps certificate verification on for Neon and Prisma Postgres", () => {
+    expect(sslOptions("postgres://u:p@ep-x-pooler.c-3.ap-southeast-1.aws.neon.tech/neondb")).toEqual({ rejectUnauthorized: true });
+    expect(sslOptions("postgres://u:p@db.prisma.io:5432/postgres?sslmode=require")).toEqual({ rejectUnauthorized: true });
+  });
+
+  it("disables verification ONLY for the Supabase pooler host, whose CA Node cannot verify", () => {
+    // Observed live: the pooler chain reports "self-signed certificate in
+    // certificate chain" while every other provider verifies. The exception is
+    // scoped to this host so the standby keeps full verification.
+    expect(sslOptions("postgresql://postgres.ref:p@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres")).toEqual({ rejectUnauthorized: false });
+  });
+
+  it("still honours an explicit sslmode=disable and the blunt PG_SSL_VERIFY=0 override", () => {
+    expect(sslOptions("postgres://u:p@db.example.com/postgres?sslmode=disable")).toBeUndefined();
+    process.env.PG_SSL_VERIFY = "0";
+    expect(sslOptions("postgres://u:p@db.prisma.io:5432/postgres")).toEqual({ rejectUnauthorized: false });
   });
 });

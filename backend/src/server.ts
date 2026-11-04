@@ -367,7 +367,11 @@ if (retargeted.length > 0) {
   // on a rolling deploy the town can flap. Seeing this line on one instance and
   // "Base" on another is this, not a failed retarget. `applyRebrand` has had the
   // same exposure since it was written.
-  saveDebounced(DATA_PATH, world, 0);
+  //
+  // Written AWAITED, not debounced: a boot reconciliation that is still sitting
+  // in a timer when the instance is recycled is a reconciliation that never
+  // happened, and the next instance would retarget the same row again.
+  await saveAtomically(DATA_PATH, world);
 }
 
 /**
@@ -404,8 +408,9 @@ export function applyBrainDefault(config: Record<string, unknown>): string[] {
  *    that is not the retired default is never touched, for the same reason the
  *    brand reconciliation is not: a default must not rewrite a real value.
  *  - Every exact retired default is rewritten. Since this default exists, it has
- *    moved twice: `5wwS…` -> `EnS8…` (2026-10-30), then `EnS8…` ->
- *    `Ercx6e…` (2026-11-01). Saves that still carry any retired one would keep
+ *    moved three times: `5wwS…` -> `EnS8…` (2026-10-30), `EnS8…` ->
+ *    `Ercx6e…` (2026-11-01), then `Ercx6e…` -> `0x8237…` (2026-11-04).
+ *    Saves that still carry any retired one would keep
  *    it forever under the absence rule, so retired values join the same pattern
  *    `applyBrainDefault` uses: only a town still carrying one of them exactly is
  *    touched; an operator-set address of any other shape is left alone.
@@ -415,6 +420,7 @@ export function applyBrainDefault(config: Record<string, unknown>): string[] {
 const RETIRED_TREASURIES: ReadonlySet<string> = new Set([
   "5wwSxR2Yttu3RieEEmKHmRq34EudDbMY42j9RLJfjMKs", // the placeholder this field's first default replaced
   "EnS8fknZdYHkJZtGN2HcS3vExJ3fyGqubNeg5Kpr5yBx", // the 2026-10-30 default, retired 2026-11-01
+  "Ercx6eCWZ59kkP3pNLRSMYvKQNrP26VdKhzPmv2k818M", // the 2026-11-01 default, retired 2026-11-04
 ]);
 
 export function applyTreasuryAddress(config: Record<string, unknown>): string[] {
@@ -1040,13 +1046,12 @@ app.get("/api/health", (_req, res) => res.json({ ok: true, now: Date.now() }));
 
 // Turn scheduler interval (18s per doc demo; prod faster for testing 4s)
 const TURN_MS = Number(process.env.TURN_MS ?? 1800);
-// 15s on pg: a tick only MARKS the world dirty — the save itself fires at most
-// once per interval, and (with the rev-cache in pgstore) an unchanged town
-// costs one tiny `SELECT rev` while a changed one merges against the cached
-// row instead of re-reading it. `PG_SAVE_DEBOUNCE_MS` still wins when an
-// operator wants faster persistence. File mode keeps 800ms: it is disk, not a
-// quota.
-const TICK_SAVE_MS = Number(process.env.PG_SAVE_DEBOUNCE_MS ?? (hasDatabase() ? 15000 : 800));
+// Saves follow the turn clock: every turn writes to ONE store, alternating
+// (the 50/50 split in persist.ts), so each provider carries half the write rate
+// instead of both carrying all of it. `PG_SAVE_DEBOUNCE_MS` still wins for an
+// operator who would rather batch a few turns together. File mode keeps 800ms —
+// disk, not a quota.
+const TICK_SAVE_MS = Number(process.env.PG_SAVE_DEBOUNCE_MS ?? (hasDatabase() ? TURN_MS : 800));
 // The tick's dirty flag. A tick that produced nothing skips entirely; one that
 // ran (needs drifted, a post landed, an edition published) marks dirty and the
 // interval decides. Reset per save, so an over-due town saves on the next tick.

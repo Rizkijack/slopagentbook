@@ -28,26 +28,32 @@ function orderedTargets() {
   );
 }
 
-function mirrorDelayMs(): number {
+function mirrorWindowMs(): number {
   const raw = Number(process.env.DB_MIRROR_MS);
-  return Number.isFinite(raw) && raw >= 0 ? raw : 300_000;
+  // Unset = 0 = no mirroring at all: the 50/50 split already keeps both stores
+  // current, and a per-save second write is the 100/100 waste an operator has
+  // to opt into. A positive window re-introduces periodic copying for someone
+  // who wants a fully synced standby.
+  if (!Number.isFinite(raw)) return 0;
+  return raw >= 0 ? raw : 0;
 }
 
 let lastMirrorAt = 0;
 
 /**
- * Best-effort copy of the current world to the standby store.
+ * Best-effort copy of the current world to the peer store.
  *
- * Routine tick saves are throttled by `DB_MIRROR_MS` (5 min by default) so a
- * standby does not double the write bill. Critical saves pass `force`, because
- * losing a ledger or vault write on failover is not the same as losing a few
- * seconds of wandering.
+ * Off by default: the 50/50 split already writes every save to one of the two
+ * stores, so a second write per save is the 100/100 duplication an operator has
+ * to ask for with DB_MIRROR_MS. With a window set, routine saves copy at most
+ * once per window and critical saves (force) copy immediately — the belt for a
+ * deployment that wants a fully synced standby.
  */
 async function mirrorToStandby(targets: DbTarget[], data: unknown, force: boolean): Promise<void> {
   const standby = targets.find((target) => target.role !== activeRole);
   if (!standby) return;
   if (standby.role === "primary" && Date.now() < primaryRetryAt) return;
-  if (!force && Date.now() - lastMirrorAt < mirrorDelayMs()) return;
+  if (!force && Date.now() - lastMirrorAt < mirrorWindowMs()) return;
   lastMirrorAt = Date.now();
   try {
     await pgSave(standby.sql, data, standby.role);
@@ -85,31 +91,51 @@ async function mirrorToStandby(targets: DbTarget[], data: unknown, force: boolea
 let saveChain: Promise<void> = Promise.resolve();
 let saveSeq = 0;
 
+/**
+ * Round-robin cursor for the 50/50 write split.
+ *
+ * Both configured stores are peers and every save goes to exactly ONE of them,
+ * alternating: save 1 primary, save 2 fallback, save 3 primary. Writing both
+ * on every save doubles the write traffic for no extra safety — the merge is
+ * additive, so the store that skips a turn catches up on its next one, and the
+ * other one already holds the row.
+ *
+ * The active role is chosen by the cursor, NOT remembered from a failure: a
+ * recovered store rejoins the rotation on its next turn instead of staying
+ * demoted for the life of the instance.
+ */
+let splitCursor = 0;
+
 export async function saveAtomically(
   path: string,
   data: unknown,
-  options: { mirror?: "now" | "lazy" } = { mirror: "now" },
+  options: { mirror?: "now" | "lazy" } = { mirror: "lazy" },
 ): Promise<void> {
   if (hasDatabase()) {
     const targets = databaseTargets();
-    const active = targets.find((target) => target.role === activeRole) ?? targets[0];
-    if (!active) throw new Error("no database configured");
-    activeRole = active.role;
+    if (targets.length === 0) throw new Error("no database configured");
+
+    // 50/50: the cursor picks this save's store. One store configured means
+    // every save goes there, which is the old single-provider behaviour.
+    const pick = targets[splitCursor++ % targets.length]!;
+    activeRole = pick.role;
     try {
-      await pgSave(active.sql, data, active.role);
+      await pgSave(pick.sql, data, pick.role);
     } catch (error) {
-      const standby = targets.find((target) => target.role !== active.role);
-      if (!standby) throw error;
+      const peer = targets.find((target) => target !== pick);
+      if (!peer) throw error;
       console.error(
-        `[persist] ${active.role} save failed; ${standby.role} takes over:`,
+        `[persist] ${pick.role} save failed; writing ${peer.role} instead:`,
         error instanceof Error ? error.message : error,
       );
-      if (active.role === "primary") primaryRetryAt = Date.now() + PRIMARY_RETRY_MS;
-      activeRole = standby.role;
-      await pgSave(standby.sql, data, standby.role);
+      if (pick.role === "primary") primaryRetryAt = Date.now() + PRIMARY_RETRY_MS;
+      activeRole = peer.role;
+      await pgSave(peer.sql, data, peer.role);
       return;
     }
-    await mirrorToStandby(targets, data, options.mirror === "now");
+    // Optional belt: DB_MIRROR_MS > 0 also copies each save to the peer at
+    // most once per window (100/100 by choice). Unset = pure 50/50.
+    if (mirrorWindowMs() > 0) await mirrorToStandby(targets, data, options.mirror === "now");
     return;
   }
   const run = saveChain.then(

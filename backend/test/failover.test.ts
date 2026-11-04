@@ -104,15 +104,30 @@ describe("two-store failover", () => {
     expect(loaded.herd[0]!.id).toBe("stored");
   });
 
-  it("mirrors a critical save to the standby on the same call", async () => {
-    await persist.saveAtomically("/tmp/never.json", { herd: [{ id: "a" }] });
-    expect(primaryDb.writes).toHaveLength(1);
+  it("splits saves 50/50 between the two stores — one write per save, alternating", async () => {
+    // One configured pair, N saves: the stores take turns (primary, fallback,
+    // primary, …). Neither store receives a duplicate write for the same save,
+    // which is the 100/100 duplication the split exists to avoid.
+    delete process.env.DB_MIRROR_MS;
+    for (let i = 0; i < 4; i++) {
+      persist.saveDebounced("/tmp/never.json", { herd: [{ id: `a${i}` }] }, 0);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    }
+    expect(primaryDb.writes).toHaveLength(2);
+    expect(fallbackDb.writes).toHaveLength(2);
+  });
+
+  it("hands a failed turn to the peer instead of dropping the save", async () => {
+    delete process.env.DB_MIRROR_MS;
+    primaryDb = fakeDb({ fail: true }); // this turn's store is down
+    await persist.saveAtomically("/tmp/never.json", { herd: [{ id: "failover" }] });
     expect(fallbackDb.writes).toHaveLength(1);
   });
 
-  it("mirrors a routine debounced save lazily, not by skipping the standby", async () => {
-    persist.saveDebounced("/tmp/never.json", { herd: [{ id: "a" }] }, 0);
-    await new Promise((resolve) => setTimeout(resolve, 50));
+  it("copies to the peer only when DB_MIRROR_MS asks for it", async () => {
+    // opt-in belt: a critical save mirrors immediately inside a window
+    process.env.DB_MIRROR_MS = "600000";
+    await persist.saveAtomically("/tmp/never.json", { herd: [{ id: "belt" }] });
     expect(primaryDb.writes).toHaveLength(1);
     expect(fallbackDb.writes).toHaveLength(1);
   });

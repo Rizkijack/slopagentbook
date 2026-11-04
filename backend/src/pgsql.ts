@@ -86,11 +86,21 @@ export function createPgSql(pool: PgPoolLike): PgSql {
 
 const pools = new Map<string, Pool>();
 
-function sslOptions(url: string): { rejectUnauthorized: boolean } | undefined {
+export function sslOptions(url: string): { rejectUnauthorized: boolean } | undefined {
   if (/[?&]sslmode=disable(?:&|$)/i.test(url)) return undefined;
-  // Managed providers require TLS. Verification is on unless explicitly
-  // disabled for a provider whose CA is not in the Node trust store.
-  return { rejectUnauthorized: process.env.PG_SSL_VERIFY !== "0" };
+  // Managed providers require TLS. Verification stays on unless the provider's
+  // CA is one Node cannot verify: Supabase's Supavisor pooler is signed by its
+  // own chain (observed live: "self-signed certificate in certificate chain"),
+  // while Neon and Prisma Postgres chains verify normally. Scoping the
+  // exception to that host keeps the standby verified instead of turning
+  // verification off deployment-wide; PG_SSL_VERIFY=0 remains the blunt
+  // override for a provider whose CA moves.
+  const supabasePooler = hostOf(url)?.endsWith(".pooler.supabase.com") ?? false;
+  return { rejectUnauthorized: !supabasePooler && process.env.PG_SSL_VERIFY !== "0" };
+}
+
+function hostOf(url: string): string | null {
+  try { return new URL(url).hostname; } catch { return null; }
 }
 
 function poolFor(url: string): Pool {
