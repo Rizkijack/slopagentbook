@@ -197,15 +197,15 @@ export const defaultConfig: TownConfig = {
   tokenAddress: "",
   tokenDeployed: false,
   /**
-   * The treasury: a real Solana account the town's funds are described against.
-   * Set explicitly, and reconciled at boot into any save that predates the
+   * The treasury: the wallet the town's funds are described against. Set
+   * explicitly, and reconciled at boot into any save that predates the
    * field — see `applyTreasuryAddress` in server.ts.
    *
    * Deliberately NOT positioned by the `tokenAddress` rule above. That field is
    * the mint and stays empty; this one is a wallet, and a wallet can exist with
    * no token behind it.
    */
-  treasuryAddress: "Ercx6eCWZ59kkP3pNLRSMYvKQNrP26VdKhzPmv2k818M",
+  treasuryAddress: "0x8237a546ab643b444450d168a24842F27Fe75fC6",
   chainName: "Elysium",
   network: "mainnet",
   nativeSymbol: "HYPE",

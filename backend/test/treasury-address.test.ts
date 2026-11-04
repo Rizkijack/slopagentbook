@@ -14,13 +14,14 @@ import { applyTreasuryAddress } from "../src/server.js";
 describe("applyTreasuryAddress", () => {
   // The current default lives in shared/src/config.ts; this must track it so a
   // silent drift in the default cannot sneak past the address checks below.
-  const REAL = "Ercx6eCWZ59kkP3pNLRSMYvKQNrP26VdKhzPmv2k818M";
+  const REAL = "0x8237a546ab643b444450d168a24842F27Fe75fC6";
 
   // The exact retired defaults each boot retarget — every address this field
   // has ever defaulted to, so a save written under any of them heals on boot.
   const RETIRED = [
     "5wwSxR2Yttu3RieEEmKHmRq34EudDbMY42j9RLJfjMKs", // the first placeholder value
     "EnS8fknZdYHkJZtGN2HcS3vExJ3fyGqubNeg5Kpr5yBx", // the 2026-10-30 default
+    "Ercx6eCWZ59kkP3pNLRSMYvKQNrP26VdKhzPmv2k818M", // the 2026-11-01 default
   ];
 
   it("fills a save that has never carried the field", () => {
@@ -36,18 +37,17 @@ describe("applyTreasuryAddress", () => {
     expect(config.treasuryAddress).toBe(defaultConfig.treasuryAddress);
   });
 
-  it("is a real, well-formed Solana address and not a placeholder", () => {
+  it("is a real, well-formed EVM address and not a placeholder", () => {
     // The previous value this field's sibling held resolved to no account on
-    // mainnet. Whatever lands here should at least be base58 of the right length,
-    // so an empty or truncated string cannot be mistaken for an address.
+    // mainnet. Whatever lands here should at least be 0x-prefixed hex of the
+    // right length, so an empty or truncated string cannot be mistaken for an
+    // address.
     expect(defaultConfig.treasuryAddress).toBe(REAL);
-    expect(REAL).toMatch(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/);
-    expect(REAL.length).toBeGreaterThanOrEqual(32);
-    expect(REAL.length).toBeLessThanOrEqual(44);
+    expect(REAL).toMatch(/^0x[0-9a-fA-F]{40}$/);
   });
 
   it("retargets every save still carrying a retired default — and only those", () => {
-    // The default has moved twice. Absence cannot help a save that has an old
+    // The default has moved three times. Absence cannot help a save that has an old
     // address in it, so each retired value — and only those values — is
     // rewritten, the same rule applyBrainDefault uses for the brain field.
     for (const old of RETIRED) {
