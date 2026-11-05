@@ -54,16 +54,71 @@ html::before {
   background-image: radial-gradient(120% 90% at 50% 0%, transparent 42%, color-mix(in srgb, var(--paper) 78%, transparent) 100%);
 }
 
-/* ── 3. Masthead ──────────────────────────────────────────────────────────
- * The bar goes translucent and gains a single signal rule along its bottom
- * edge — cyan → violet → magenta, fading out at both ends so it reads as an
- * instrument, not a rainbow. */
+/* ── 3. Page shell + city bands ──────────────────────────────────────────
+ * The city is page furniture, not a header/footer background: two full-width
+ * bands pinned to the top and bottom of the shell, outside the content frame.
+ * The bars above them are translucent so the artwork shows through without
+ * putting art inside the nav or the footer component. */
+.site-shell {
+  position: relative;
+}
+
+.city-band {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: url("/cyberpunk-city.svg");
+  background-repeat: no-repeat;
+  background-size: cover;
+}
+
+.city-band--top {
+  top: 0;
+  height: clamp(230px, 21vw, 400px);
+  background-position: center top;
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 72%, transparent 100%);
+  mask-image: linear-gradient(180deg, #000 0%, #000 72%, transparent 100%);
+}
+
+.city-band--bottom {
+  bottom: 0;
+  height: clamp(180px, 15vw, 300px);
+  background-position: center bottom;
+  -webkit-mask-image: linear-gradient(0deg, #000 0%, #000 70%, transparent 100%);
+  mask-image: linear-gradient(0deg, #000 0%, #000 70%, transparent 100%);
+}
+
+.site-shell > .page-wrap {
+  position: relative;
+  z-index: 1;
+}
+
+/* The bar goes translucent and keeps a single signal rule along its bottom
+   edge — cyan → violet → magenta, fading out at both ends. */
 .masthead {
   border-bottom-width: 1px;
   border-bottom-color: transparent;
-  background-image: linear-gradient(180deg, color-mix(in srgb, var(--paper-2) 88%, transparent), color-mix(in srgb, var(--paper) 84%, transparent));
+  background-color: transparent;
+  background-image: linear-gradient(180deg, color-mix(in srgb, var(--paper) 74%, transparent), color-mix(in srgb, var(--paper) 42%, transparent));
   -webkit-backdrop-filter: blur(16px) saturate(150%);
   backdrop-filter: blur(16px) saturate(150%);
+}
+
+.site-footer {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 148px;
+  padding: 38px 24px;
+  background-color: transparent;
+  background-image: linear-gradient(0deg, color-mix(in srgb, var(--paper) 88%, transparent), color-mix(in srgb, var(--paper) 36%, transparent));
+  border-top: 1px solid color-mix(in srgb, var(--accent) 26%, var(--hair));
+  color: var(--muted);
 }
 
 .masthead::after {

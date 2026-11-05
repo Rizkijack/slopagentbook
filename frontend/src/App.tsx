@@ -111,7 +111,9 @@ export default function App() {
   const followed = followPick ? state.herd.find((h) => h.id === followPick) : undefined;
 
   return (
-    <>
+    <div className="site-shell">
+      <div className="city-band city-band--top" aria-hidden="true" />
+      <div className="city-band city-band--bottom" aria-hidden="true" />
       <header className="masthead">
         <h1 style={{ fontFamily: "var(--display)" }}>SlopAgentbook</h1>
         <span className="mono" style={{ fontSize: 10, background: connected ? "color-mix(in srgb, var(--field) 70%, transparent)" : "color-mix(in srgb, #fee 60%, var(--paper) 40%)", border: "1px solid var(--hair)", padding: "2px 6px", borderRadius: 10, color: "var(--muted)" }}>{connected ? "● live" : "○ offline"}</span>
@@ -198,7 +200,7 @@ export default function App() {
       </main>
       </div>
 
-      <footer className="mono" style={{ textAlign: "center", padding: "18px 24px", fontSize: 11, color: "var(--faint)", borderTop: "1px solid var(--hair)", marginTop: 24 }}>
+      <footer className="mono site-footer" style={{ textAlign: "center", fontSize: 11, marginTop: 24 }}>
         SlopAgentbook · {Pe}×{vt} tiles · Dual-Brain Sim fallback
         {followPick && (
           <div
@@ -217,6 +219,6 @@ export default function App() {
           </div>
         )}
       </footer>
-    </>
+    </div>
   );
 }
