@@ -112,6 +112,18 @@ describe("soundtrack playback", () => {
     expect(fake.ctx.suspended).toBe(1);
   });
 
+  it("does not suspend a context that was restarted before the fade ended", async () => {
+    const player = new Soundtrack();
+    await player.start();
+    player.stop();
+    // off → on inside the 700ms fade window
+    await player.start();
+    vi.advanceTimersByTime(900);
+    expect(fake.ctx.suspended).toBe(0);
+    expect(player.isRunning).toBe(true);
+    player.stop();
+  });
+
   it("does not stack a second scheduler when start is called twice", async () => {
     const player = new Soundtrack();
     await player.start();

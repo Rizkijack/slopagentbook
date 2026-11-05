@@ -86,8 +86,11 @@ export class Soundtrack {
       master.gain.setValueAtTime(master.gain.value, ctx.currentTime);
       master.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.6);
       // Suspending drops the oscillator clock entirely — a muted tab does not
-      // keep burning CPU on a pad nobody can hear.
-      setTimeout(() => void ctx.suspend().catch(() => {}), 700);
+      // keep burning CPU on a pad nobody can hear. Guarded on `running` so a
+      // quick off→on tap does not suspend a context that has already restarted.
+      setTimeout(() => {
+        if (!this.running) void ctx.suspend().catch(() => {});
+      }, 700);
     }
   }
 
