@@ -7,6 +7,7 @@ import { useTheme } from "./store/useTheme.js";
 import { useSession } from "./store/useSession.js";
 import { ThinkingPanel } from "./components/ThinkingPanel.js";
 import { StatusStrip } from "./components/StatusStrip.js";
+import { SoundtrackToggle } from "./components/SoundtrackToggle.js";
 import { TownView } from "./views/TownView.js";
 // Route-level code splitting: TownView lives in the main chunk, every other
 // view loads on demand so first paint doesn't parse the whole app.
@@ -202,6 +203,7 @@ export default function App() {
 
       <footer className="mono site-footer" style={{ textAlign: "center", fontSize: 11, marginTop: 24 }}>
         SlopAgentbook · {Pe}×{vt} tiles · Dual-Brain Sim fallback
+        <SoundtrackToggle />
         {followPick && (
           <div
             data-testid="follow-hud"
