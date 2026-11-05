@@ -485,7 +485,7 @@ export class Xf {
   private drawNameTag(ctx: CanvasRenderingContext2D, a: { id: string; name: string }, sx: number, sy: number): void {
     const halfW = (a.name.length * 4.8 + 7) / 2;
     const y = this.tagRow(sx, sy, halfW);
-    ctx.font = `${TAG_PX}px JetBrains Mono`;
+    ctx.font = `${TAG_PX}px IBM Plex Mono`;
     ctx.textAlign = "center";
     ctx.fillStyle = "rgba(244,241,234,0.92)";
     ctx.fillRect(sx - halfW, y, halfW * 2, TAG_H);
@@ -1167,7 +1167,7 @@ export class Xf {
             // it is under 2 screen px and the shaping cost buys nothing
             if (lod.labels) {
               ctx.fillStyle = isDarkTheme ? "#a49c90" : "#1b1915";
-              ctx.font = `${LABEL_PX}px JetBrains Mono`;
+              ctx.font = `${LABEL_PX}px IBM Plex Mono`;
               ctx.textAlign = "center";
               ctx.globalAlpha = 0.85;
               ctx.fillText(b.name.replace("The ", ""), bx + bw / 2, by + bh + 10);
@@ -1310,7 +1310,7 @@ export class Xf {
           // label — same screen-size floor as the terrain labels above
           if (lod.labels) {
             ctx.fillStyle = isDarkTheme ? "#a49c90" : "#1b1915";
-            ctx.font = `${LABEL_PX}px JetBrains Mono`;
+            ctx.font = `${LABEL_PX}px IBM Plex Mono`;
             ctx.textAlign = "center";
             ctx.globalAlpha = 0.9;
             // strip behind label
@@ -1490,7 +1490,7 @@ export class Xf {
       // box bottom + its 8px tail: the tip lands on the crown (a.y - NPC_H)
       const sy = ag.y - NPC_H - 8 - Math.sin(ag.idlePhase * 0.8) * 1.2;
       const pad = 6;
-      ctx.font = "11px Instrument Serif";
+      ctx.font = "11px Chakra Petch";
       const metrics = ctx.measureText(bub.text);
       const bw = Math.min(220, metrics.width + pad * 2 + 10);
       const lines = wrapText(ctx, bub.text, bw - pad * 2);

@@ -1,0 +1,371 @@
+/* ============================================================================
+ * scifi.css — "ORBITAL", the maximalist sci-fi skin.
+ *
+ * A layer on top of tokens.css, not a replacement for it. The theme blocks
+ * still own every colour relationship (--paper, --ink, --accent, --hair …);
+ * this file only spends them on the things a token cannot express: the
+ * gradient rule under the masthead, the HUD brackets on a panel, the signal
+ * edge on a table header, the glow on a focused control.
+ *
+ * Rules are token-driven on purpose, so the same file dresses all three
+ * themes: on parchment the gradients read as warm gold, on dark as cyan and
+ * violet. Nothing here animates — every effect is a static gradient, so the
+ * layer costs the compositor nothing on a machine that is already drawing a
+ * pixel-art town every frame.
+ * ========================================================================== */
+
+/* ── 1. Type ──────────────────────────────────────────────────────────────
+ * Orbitron is the display face (headings, bills, the brand); IBM Plex Sans
+ * carries body copy; IBM Plex Mono carries every number, id and timestamp, so
+ * digits sit on a tabular grid instead of drifting between rows. */
+
+.masthead h1 {
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding-right: 2px;
+}
+
+/* Chromatic brand: a gradient only the letters see, with a plain-colour
+   fallback for any engine that cannot clip a background to text. */
+@supports ((-webkit-background-clip: text) or (background-clip: text)) {
+  .masthead h1 {
+    background-image: linear-gradient(96deg, var(--ink) 8%, var(--accent) 52%, var(--accent-2) 96%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+}
+
+/* Every big title that already asks for --display (the view headers) gets the
+   same optical treatment: none of them are body copy. */
+h1, h2 { text-wrap: balance; }
+
+/* ── 2. Page shell ────────────────────────────────────────────────────────
+ * A vignette that pulls the eye to the content column. Kept off the scanline
+ * layer so the two never multiply into a grey wash. */
+html::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image: radial-gradient(120% 90% at 50% 0%, transparent 42%, color-mix(in srgb, var(--paper) 78%, transparent) 100%);
+}
+
+/* ── 3. Masthead ──────────────────────────────────────────────────────────
+ * The bar goes translucent and gains a single signal rule along its bottom
+ * edge — cyan → violet → magenta, fading out at both ends so it reads as an
+ * instrument, not a rainbow. */
+.masthead {
+  border-bottom-width: 1px;
+  border-bottom-color: transparent;
+  background-image: linear-gradient(180deg, color-mix(in srgb, var(--paper-2) 88%, transparent), color-mix(in srgb, var(--paper) 84%, transparent));
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  backdrop-filter: blur(16px) saturate(150%);
+}
+
+.masthead::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 1px;
+  pointer-events: none;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    var(--accent) 16%,
+    var(--accent-2) 48%,
+    var(--accent-3) 74%,
+    transparent 100%);
+  opacity: 0.85;
+}
+
+.masthead nav a {
+  transition: color 0.18s ease, border-color 0.18s ease, text-shadow 0.18s ease;
+}
+
+.masthead nav a.active,
+.masthead nav a:hover {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  text-shadow: 0 0 14px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+/* ── 4. Panels ────────────────────────────────────────────────────────────
+ * A card is a plate: a cold-to-warm gradient body, one lit top edge, and four
+ * 12px corner brackets. The brackets come from ::before so they never enter
+ * the flow and never intercept a click. */
+.card {
+  position: relative;
+  padding: 18px;
+  border-radius: 12px;
+  border-color: color-mix(in srgb, var(--accent) 14%, var(--hair));
+  background-image:
+    linear-gradient(180deg, color-mix(in srgb, var(--accent) 5%, transparent), transparent 34%),
+    linear-gradient(168deg, color-mix(in srgb, var(--paper-2) 94%, transparent), color-mix(in srgb, var(--paper) 92%, transparent));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--accent) 18%, transparent),
+    0 30px 60px -50px rgba(0, 0, 0, 0.95);
+}
+
+.card::before {
+  content: "";
+  position: absolute;
+  inset: 7px;
+  pointer-events: none;
+  border-radius: 8px;
+  opacity: 0.6;
+  --tick: color-mix(in srgb, var(--accent) 70%, transparent);
+  background-image:
+    linear-gradient(var(--tick), var(--tick)),
+    linear-gradient(var(--tick), var(--tick)),
+    linear-gradient(var(--tick), var(--tick)),
+    linear-gradient(var(--tick), var(--tick)),
+    linear-gradient(var(--tick), var(--tick)),
+    linear-gradient(var(--tick), var(--tick)),
+    linear-gradient(var(--tick), var(--tick)),
+    linear-gradient(var(--tick), var(--tick));
+  background-repeat: no-repeat;
+  background-size: 13px 1px, 1px 13px, 13px 1px, 1px 13px, 13px 1px, 1px 13px, 13px 1px, 1px 13px;
+  background-position:
+    left top, left top,
+    right top, right top,
+    left bottom, left bottom,
+    right bottom, right bottom;
+}
+
+/* §6.4 reduced motion: the brackets are static, nothing to disable. */
+
+/* ── 5. Tables ────────────────────────────────────────────────────────────
+ * One instrument panel for every board in the app. .table-scroll is the
+ * chassis (radius, rim, containment); .data-table is the readout.
+ *
+ * The header is the only place a strong rule is allowed: a signal-coloured
+ * top edge, a wash of accent, and letterspaced micro-labels. Rows sit on
+ * hairlines, alternate on a 2% ink wash, and light up from the left edge on
+ * hover so the eye can track a row across six columns. */
+.table-scroll {
+  overflow: auto;
+  max-height: 560px;
+  border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--hair));
+  border-radius: 12px;
+  background-color: color-mix(in srgb, var(--paper-2) 45%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--accent) 14%, transparent),
+    0 26px 50px -46px rgba(0, 0, 0, 0.95);
+}
+
+.data-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 11px 14px;
+  letter-spacing: 0.2em;
+  color: color-mix(in srgb, var(--accent) 72%, var(--ink));
+  background-color: var(--paper-2);
+  background-image: linear-gradient(180deg, color-mix(in srgb, var(--accent) 14%, transparent), transparent 88%);
+  border-top: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 26%, var(--hair));
+}
+
+.data-table tbody td {
+  padding: 10px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--hair) 62%, transparent);
+}
+
+.data-table tbody tr:nth-child(even) td {
+  background-image: linear-gradient(180deg, color-mix(in srgb, var(--ink) 2.6%, transparent), color-mix(in srgb, var(--ink) 2.6%, transparent));
+}
+
+.data-table tbody tr:hover td {
+  background-image: linear-gradient(90deg, color-mix(in srgb, var(--accent) 13%, transparent), transparent 58%);
+}
+
+.data-table tbody tr:hover td:first-child {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* Numeric columns read as numbers: fixed-width digits, right-aligned. */
+.data-table .num,
+.data-table td[style*="text-align: right"] {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The chat board is a table too (ChatPanel). It keeps its own column widths
+   and only borrows the readout treatment. */
+.chat-table-wrap {
+  border-radius: 10px;
+  border-color: color-mix(in srgb, var(--accent) 14%, var(--hair));
+  background-color: color-mix(in srgb, var(--paper-2) 45%, transparent);
+}
+
+.chat-table thead th {
+  background-color: var(--paper-2);
+  background-image: linear-gradient(180deg, color-mix(in srgb, var(--accent) 14%, transparent), transparent 88%);
+  color: color-mix(in srgb, var(--accent) 62%, var(--muted));
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 26%, var(--hair));
+  letter-spacing: 0.16em;
+}
+
+.chat-table tbody tr:hover {
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+/* ── 6. Controls ──────────────────────────────────────────────────────────
+ * Focus is the one state a sci-fi HUD cannot fake: a two-ring signal halo,
+ * drawn with box-shadow so it never shifts layout. */
+.btn {
+  border-radius: 6px;
+  letter-spacing: 0.1em;
+}
+
+.btn:hover {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent),
+    0 0 26px -8px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+.btn:focus-visible,
+.btn-ghost:focus-visible,
+.theme-toggle:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 70%, transparent),
+    0 0 0 4px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+input, select, textarea {
+  border-radius: 8px;
+  background-image: linear-gradient(180deg, color-mix(in srgb, var(--accent) 5%, transparent), transparent 70%);
+}
+
+.theme-toggle .dot::before {
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 70%, transparent);
+}
+
+/* ── 7. Landing ───────────────────────────────────────────────────────────
+ * WelcomeView carries its own scoped palette (.bl-landing). On the dark
+ * theme it is pulled onto the same navy signal system as the rest of the
+ * app: gold becomes cyan, the parchment quest slab becomes a plate, and the
+ * chunky 3px pixel borders become hairlines. Light and stone keep the warm
+ * palette they were designed with. */
+[data-theme="dark"] .bl-landing {
+  --bl-bg: var(--paper);
+  --bl-bg-2: var(--paper-2);
+  --bl-ink: var(--paper);
+  --bl-parch: var(--ink);
+  --bl-parch-2: var(--ink-2);
+  --bl-gold: var(--accent);
+  --bl-orange: var(--accent-3);
+  --bl-stone: var(--paper-2);
+  --bl-stone-hi: color-mix(in srgb, var(--accent) 32%, var(--hair));
+  --bl-mute: var(--muted);
+  --bl-faint: var(--faint);
+  border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--hair));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+[data-theme="dark"] .bl-landing .bl-card,
+[data-theme="dark"] .bl-landing .bl-tale,
+[data-theme="dark"] .bl-landing .bl-quest,
+[data-theme="dark"] .bl-landing details.bl-faq,
+[data-theme="dark"] .bl-landing .bl-board {
+  border-width: 1px;
+  border-color: color-mix(in srgb, var(--accent) 18%, var(--hair));
+  border-radius: 10px;
+  box-shadow: none;
+}
+
+[data-theme="dark"] .bl-landing .bl-quest {
+  background: color-mix(in srgb, var(--paper-2) 88%, transparent);
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--hair));
+}
+
+[data-theme="dark"] .bl-landing .bl-quest .bl-qtitle {
+  color: var(--ink);
+  text-shadow: none;
+}
+
+[data-theme="dark"] .bl-landing .bl-quest .bl-reward {
+  border-top-color: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+[data-theme="dark"] .bl-landing .bl-btn {
+  border-width: 1px;
+  border-radius: 8px;
+  box-shadow: none;
+  font-family: var(--display);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-size: 12px;
+  padding: 12px 22px;
+}
+
+[data-theme="dark"] .bl-landing .bl-btn-gold {
+  background: linear-gradient(96deg, var(--accent), var(--accent-2));
+  color: #04070d;
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+[data-theme="dark"] .bl-landing .bl-btn-ghost {
+  background: transparent;
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+[data-theme="dark"] .bl-landing .bl-badge {
+  background: color-mix(in srgb, var(--paper) 80%, transparent);
+  border-width: 1px;
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  font-family: var(--mono);
+  letter-spacing: 0.18em;
+}
+
+[data-theme="dark"] .bl-landing .bl-brandbar {
+  background: color-mix(in srgb, var(--paper) 82%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 22%, var(--hair));
+}
+
+[data-theme="dark"] .bl-landing .bl-brandbar-word {
+  font-family: var(--display);
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  text-shadow: 0 0 22px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+[data-theme="dark"] .bl-landing .bl-hero-title {
+  background: linear-gradient(transparent, color-mix(in srgb, var(--paper) 94%, transparent) 58%);
+}
+
+[data-theme="dark"] .bl-landing .bl-hero {
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 20%, var(--hair));
+}
+
+[data-theme="dark"] .bl-landing .bl-section {
+  border-bottom: 1px solid color-mix(in srgb, var(--hair) 70%, transparent);
+}
+
+[data-theme="dark"] .bl-landing .bl-bannerhero {
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 20%, var(--hair));
+}
+
+/* ── 8. Responsive ────────────────────────────────────────────────────────
+ * The bracket inset and the panel padding are the two values that eat
+ * horizontal space on a phone; both shrink rather than disappear. */
+@media (max-width: 600px) {
+  .card { padding: 14px; border-radius: 10px; }
+  .card::before { inset: 5px; background-size: 9px 1px, 1px 9px, 9px 1px, 1px 9px, 9px 1px, 1px 9px, 9px 1px, 1px 9px; }
+  .data-table thead th,
+  .data-table tbody td { padding: 9px 10px; }
+  .data-table thead th { letter-spacing: 0.14em; }
+  .table-scroll { max-height: 420px; }
+}

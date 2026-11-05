@@ -133,7 +133,7 @@ export interface SceneDraw { isDark: boolean; night: number; time: number; }
 
 /** Screen-constant px for text drawn under the camera transform. */
 function uiFont(px: number, zoom: number): string {
-  return `${px / (zoom || 1)}px JetBrains Mono`;
+  return `${px / (zoom || 1)}px IBM Plex Mono`;
 }
 
 // The road network moved to shared/src/map.ts: the backend's tile generator and
@@ -4823,7 +4823,7 @@ function drawPropVector(ctx: CanvasRenderingContext2D, p: Prop, d: SceneDraw): v
       ctx.fillStyle = isDark ? "#2e4455" : "#5f8aa8";
       ctx.beginPath(); ctx.moveTo(-13, -40); ctx.lineTo(0, -47); ctx.lineTo(13, -40); ctx.closePath(); ctx.fill();
       ctx.fillStyle = isDark ? "#c9a86a" : "#1b1915";
-      ctx.font = "6px JetBrains Mono";
+      ctx.font = "6px IBM Plex Mono";
       ctx.textAlign = "center";
       // branded like the rest of town — this still said HERMES after the rename
       ctx.fillText("SLB", 0, -30);

@@ -46,7 +46,7 @@ export function TownView({ snapshot, onPick, onFollowChange }: { snapshot: TownS
         <div className="card" style={{ padding: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>
           <div style={{ padding: 18, flex: 1 }}>
             <div className="mono" style={{ fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--faint)" }}>Town Ground {snapshot.config.ticker}</div>
-            <div style={{ fontFamily: "Instrument Serif", fontSize: 28, lineHeight: 1, marginTop: 8, letterSpacing: "-0.02em" }}>
+            <div style={{ fontFamily: "var(--display)", fontSize: 28, lineHeight: 1, marginTop: 8, letterSpacing: "-0.02em" }}>
               {snapshot.herd.length} residents
               <span style={{ fontWeight: 400, color: "var(--muted)", fontSize: 18, marginLeft: 8 }}>in the field</span>
             </div>
@@ -89,7 +89,7 @@ export function TownView({ snapshot, onPick, onFollowChange }: { snapshot: TownS
               has claimed nothing yet ranks exactly as it used to. */}
           <div className="card">
             <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
-              <div style={{ fontFamily: "Instrument Serif", fontSize: 14, color: "var(--ink)" }}>Leaderboard</div>
+              <div style={{ fontFamily: "var(--display)", fontSize: 14, color: "var(--ink)" }}>Leaderboard</div>
               <div className="mono" style={{ fontSize: 10, color: "var(--faint)" }}>{leaderboardNote(board.length, snapshot.herd.length)}</div>
             </div>
             <div className="mono lb-head">
@@ -116,12 +116,12 @@ export function TownView({ snapshot, onPick, onFollowChange }: { snapshot: TownS
 
           <div className="card">
             <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
-              <div style={{ fontFamily: "Instrument Serif", fontSize: 14, color: "var(--ink)" }}>Top spots</div>
+              <div style={{ fontFamily: "var(--display)", fontSize: 14, color: "var(--ink)" }}>Top spots</div>
               <div className="mono" style={{ fontSize: 10, color: "var(--faint)" }}>{top.length} active</div>
             </div>
             <div style={{ marginTop: 10, display: "flex", flexDirection: "column" }}>
               {top.map(([place, n], i) => (
-                <div key={place} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 0", borderTop: i === 0 ? "1px solid var(--hair)" : "1px solid color-mix(in srgb, var(--hair) 60%, transparent)", fontFamily: "JetBrains Mono", fontSize: 12 }}>
+                <div key={place} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 0", borderTop: i === 0 ? "1px solid var(--hair)" : "1px solid color-mix(in srgb, var(--hair) 60%, transparent)", fontFamily: "var(--mono)", fontSize: 12 }}>
                   <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <span style={{ width: 4, height: 4, borderRadius: 999, background: i === 0 ? "var(--accent)" : "var(--hair)", display: "inline-block" }} />
                     {place}
@@ -134,7 +134,7 @@ export function TownView({ snapshot, onPick, onFollowChange }: { snapshot: TownS
           </div>
 
           <div className="card" style={{ display: "flex", flexDirection: "column" }}>
-            <div style={{ fontFamily: "Instrument Serif", fontSize: 14, color: "var(--ink)" }}>Recent occurrences</div>
+            <div style={{ fontFamily: "var(--display)", fontSize: 14, color: "var(--ink)" }}>Recent occurrences</div>
             <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
               {snapshot.events.slice(-2).map((e, i) => (
                 <div key={i} className="mono" style={{ fontSize: 11, lineHeight: 1.5, color: "var(--ink-2)", background: "color-mix(in srgb, var(--mark) 45%, transparent)", padding: "6px 8px", borderRadius: 6, border: "1px solid color-mix(in srgb, var(--hair) 55%, transparent)" }}>{e.text}</div>
@@ -167,7 +167,7 @@ export function TownView({ snapshot, onPick, onFollowChange }: { snapshot: TownS
               const pct = Math.round((q.progress / q.required) * 100);
               return (
                 <div key={q.id} style={{ padding: "12px 14px", borderRight: "1px solid var(--hair)", display: "flex", flexDirection: "column", gap: 6 }}>
-                  <div style={{ fontFamily: "Instrument Serif", fontSize: 13, lineHeight: 1.1 }}>{q.title}</div>
+                  <div style={{ fontFamily: "var(--display)", fontSize: 13, lineHeight: 1.1 }}>{q.title}</div>
                   <div className="mono" style={{ fontSize: 10, color: "var(--muted)" }}>{q.category} · {q.type} · {q.progress}/{q.required}</div>
                   <div style={{ height: 4, background: "color-mix(in srgb, var(--hair) 60%, transparent)", borderRadius: 6, overflow: "hidden", marginTop: 2 }}>
                     <div style={{ width: `${pct}%`, height: "100%", background: "var(--ink)", transition: "width 0.4s ease" }} />

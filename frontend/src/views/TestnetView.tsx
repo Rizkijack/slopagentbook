@@ -323,32 +323,34 @@ export function TestnetView() {
             here — not a placeholder, not a fake balance.
           </div>
         ) : (
-          <table style={{ width: "100%", marginTop: 10, fontSize: 13, borderCollapse: "collapse" }}>
-            <thead>
-              <tr className="mono" style={{ fontSize: 10, color: "var(--faint)", textAlign: "left" }}>
-                <th style={{ padding: "4px 6px" }}>VAULT</th>
-                <th style={{ padding: "4px 6px" }}>BALANCE</th>
-                <th style={{ padding: "4px 6px" }}>PER-TRADE</th>
-                <th style={{ padding: "4px 6px" }}>DAILY</th>
-                <th style={{ padding: "4px 6px" }}>STATE</th>
-              </tr>
-            </thead>
-            <tbody>
-              {vaults.map((v) => (
-                <tr key={v.id} style={{ borderTop: "1px solid var(--hair)" }}>
-                  <td className="mono" style={{ padding: "6px", fontSize: 11 }}>{v.id.slice(0, 12)}…</td>
-                  <td className="mono" style={{ padding: "6px" }}>{v.balance.toFixed(4)} {SYMBOL}</td>
-                  <td className="mono" style={{ padding: "6px", color: "var(--muted)" }}>{v.leash.perTrade} {SYMBOL}</td>
-                  <td className="mono" style={{ padding: "6px", color: "var(--muted)" }}>{v.leash.daily} {SYMBOL}</td>
-                  <td style={{ padding: "6px" }}>
-                    <span className="mono" style={{ fontSize: 11, color: v.paused ? "var(--halt)" : "var(--profit)" }}>
-                      {v.paused ? "● halted" : "● live"}
-                    </span>
-                  </td>
+          <div className="table-scroll">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">VAULT</th>
+                  <th scope="col" className="num">BALANCE</th>
+                  <th scope="col" className="num">PER-TRADE</th>
+                  <th scope="col" className="num">DAILY</th>
+                  <th scope="col">STATE</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {vaults.map((v) => (
+                  <tr key={v.id}>
+                    <td>{v.id.slice(0, 12)}…</td>
+                    <td className="num">{v.balance.toFixed(4)} {SYMBOL}</td>
+                    <td className="num" style={{ color: "var(--muted)" }}>{v.leash.perTrade} {SYMBOL}</td>
+                    <td className="num" style={{ color: "var(--muted)" }}>{v.leash.daily} {SYMBOL}</td>
+                    <td>
+                      <span style={{ color: v.paused ? "var(--halt)" : "var(--profit)" }}>
+                        {v.paused ? "● halted" : "● live"}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
@@ -363,41 +365,41 @@ export function TestnetView() {
             <a href="#/brawl">the Reckoning Board</a> records what was settled.
           </div>
         ) : (
-          <table style={{ width: "100%", marginTop: 10, fontSize: 13, borderCollapse: "collapse" }}>
-            <thead>
-              <tr className="mono" style={{ fontSize: 10, color: "var(--faint)", textAlign: "left" }}>
-                <th style={{ padding: "4px 6px" }}>TRADE</th>
-                <th style={{ padding: "4px 6px" }}>SIZE</th>
-                <th style={{ padding: "4px 6px" }}>ENTRY</th>
-                <th style={{ padding: "4px 6px" }}>PNL</th>
-                <th style={{ padding: "4px 6px" }}>STATE</th>
-              </tr>
-            </thead>
-            <tbody>
-              {trades.slice(-50).reverse().map((t) => (
-                <tr key={t.id} style={{ borderTop: "1px solid var(--hair)" }}>
-                  <td className="mono" style={{ padding: "6px", fontSize: 11 }}>{t.id.slice(0, 12)}…</td>
-                  <td className="mono" style={{ padding: "6px" }}>{t.size} {SYMBOL}</td>
-                  <td className="mono" style={{ padding: "6px", color: "var(--muted)" }}>{t.entryPrice}</td>
-                  <td className="mono" style={{ padding: "6px", color: t.pnl >= 0 ? "var(--profit)" : "var(--halt)" }}>
-                    {t.pnl >= 0 ? "+" : ""}{t.pnl.toFixed(4)}
-                  </td>
-                  <td style={{ padding: "6px" }}>
-                    <span
-                      className="mono"
-                      style={{
-                        fontSize: 11,
-                        color: t.status === "rejected" ? "var(--danger)" : t.status === "open" ? "var(--accent)" : "var(--profit)",
-                      }}
-                    >
-                      ● {t.status}
-                      {t.status === "rejected" && t.reason ? ` — ${t.reason}` : ""}
-                    </span>
-                  </td>
+          <div className="table-scroll">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">TRADE</th>
+                  <th scope="col" className="num">SIZE</th>
+                  <th scope="col" className="num">ENTRY</th>
+                  <th scope="col" className="num">PNL</th>
+                  <th scope="col">STATE</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {trades.slice(-50).reverse().map((t) => (
+                  <tr key={t.id}>
+                    <td>{t.id.slice(0, 12)}…</td>
+                    <td className="num">{t.size} {SYMBOL}</td>
+                    <td className="num" style={{ color: "var(--muted)" }}>{t.entryPrice}</td>
+                    <td className="num" style={{ color: t.pnl >= 0 ? "var(--profit)" : "var(--halt)" }}>
+                      {t.pnl >= 0 ? "+" : ""}{t.pnl.toFixed(4)}
+                    </td>
+                    <td>
+                      <span
+                        style={{
+                          color: t.status === "rejected" ? "var(--danger)" : t.status === "open" ? "var(--accent)" : "var(--profit)",
+                        }}
+                      >
+                        ● {t.status}
+                        {t.status === "rejected" && t.reason ? ` — ${t.reason}` : ""}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>

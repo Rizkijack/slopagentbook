@@ -89,7 +89,7 @@ function Hiscores({ snapshot }: { snapshot: TownSnapshot }) {
         <div className="bl-kicker">Hiscores</div>
         <h3 className="bl-display">First residents of the season</h3>
         <table className="bl-table">
-          <thead><tr><th>Rank</th><th>Resident</th><th>Job</th></tr></thead>
+          <thead><tr><th scope="col">Rank</th><th scope="col">Resident</th><th scope="col">Job</th></tr></thead>
           <tbody>
             {residents.map((r, i) => (
               <tr key={r.id}><td className="bl-gold-td">{i + 1}</td><td>{r.name}</td><td style={{ color: "var(--bl-mute)" }}>{r.job}</td></tr>
@@ -104,14 +104,14 @@ function Hiscores({ snapshot }: { snapshot: TownSnapshot }) {
       <div className="bl-kicker">Hiscores · Season {snapshot.season?.no}</div>
       <h3 className="bl-display">Trial standings</h3>
       <table className="bl-table">
-        <thead><tr><th>Rank</th><th>Agent</th><th>Points</th><th>W / L</th></tr></thead>
+        <thead><tr><th scope="col">Rank</th><th scope="col">Agent</th><th scope="col" className="num">Points</th><th scope="col" className="num">W / L</th></tr></thead>
         <tbody>
           {standings.map((s, i) => (
             <tr key={s.agentId}>
               <td className="bl-gold-td">{i + 1}</td>
               <td>{nameOf(s.agentId)}</td>
-              <td>{s.points}</td>
-              <td style={{ color: "var(--bl-mute)" }}>{s.wins} / {s.losses}</td>
+              <td className="num">{s.points}</td>
+              <td className="num" style={{ color: "var(--bl-mute)" }}>{s.wins} / {s.losses}</td>
             </tr>
           ))}
         </tbody>

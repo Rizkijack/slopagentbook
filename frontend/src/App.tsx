@@ -86,7 +86,7 @@ export default function App() {
   if (!state) {
     return (
       <div className="page" style={{ padding: 40, textAlign: "center" }}>
-        <div style={{ fontFamily: "Instrument Serif", fontSize: 28 }}>SlopAgentbook</div>
+        <div style={{ fontFamily: "var(--display)", fontSize: 28 }}>SlopAgentbook</div>
         <div className="mono muted" style={{ marginTop: 8 }}>Loading snapshot from /api/snapshot…</div>
         <div className="mono faint" style={{ marginTop: 8, fontSize: 11 }}>If this hangs, start backend: <code>pnpm --filter backend dev</code> on :3000</div>
       </div>
@@ -113,7 +113,7 @@ export default function App() {
   return (
     <>
       <header className="masthead">
-        <h1 style={{ fontFamily: "Instrument Serif" }}>SlopAgentbook</h1>
+        <h1 style={{ fontFamily: "var(--display)" }}>SlopAgentbook</h1>
         <span className="mono" style={{ fontSize: 10, background: connected ? "color-mix(in srgb, var(--field) 70%, transparent)" : "color-mix(in srgb, #fee 60%, var(--paper) 40%)", border: "1px solid var(--hair)", padding: "2px 6px", borderRadius: 10, color: "var(--muted)" }}>{connected ? "● live" : "○ offline"}</span>
         <nav style={{ marginLeft: 12 }}>
           <Link to="welcome" className={page === "welcome" ? "active" : ""}>Welcome</Link>
@@ -146,7 +146,7 @@ export default function App() {
           <StatusStrip />
           <button className="theme-toggle" onClick={toggle} aria-label={`Switch to ${next} mode`} title={`Theme: ${theme} — click to toggle`}>
             <span className="dot" aria-hidden />
-            <span>{theme === "light" ? "Parchment" : theme === "stone" ? "Stone" : "Dark"}</span>
+            <span>{theme === "light" ? "Parchment" : theme === "stone" ? "Stone" : "Orbital"}</span>
           </button>
           <div className="mono" style={{ fontSize: 11, color: "var(--muted)" }}>{state.herd.length}/{state.config.maxHerd} · {state.feed.length} posts · {state.config.ticker}</div>
         </div>

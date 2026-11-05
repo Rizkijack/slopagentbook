@@ -57,7 +57,7 @@ export function ScalesCalculator({ leash = LEASH }: { leash?: Leash }) {
       </label>
 
       <div className="card" style={{ background: "var(--mark)", boxShadow: "none" }}>
-        <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
+        <table className="data-table">
           <tbody>
             <Row label="RAW MOVE" value={`${move >= 0 ? "+" : ""}${move}%`} />
             <Row label="CAPPED BY LEASH" value={`${r.capped >= 0 ? "+" : ""}${r.capped}%`} muted />
@@ -78,9 +78,9 @@ export function ScalesCalculator({ leash = LEASH }: { leash?: Leash }) {
 
 function Row({ label, value, tone, muted = false }: { label: string; value: string; tone?: string; muted?: boolean }) {
   return (
-    <tr style={{ borderTop: "1px solid var(--hair)" }}>
-      <td className="mono" style={{ padding: "5px 4px", fontSize: 10, color: "var(--faint)" }}>{label}</td>
-      <td className="mono" style={{ padding: "5px 4px", textAlign: "right", color: tone ?? (muted ? "var(--muted)" : "var(--ink)") }}>{value}</td>
+    <tr>
+      <td style={{ fontSize: 10, letterSpacing: "0.08em", color: "var(--faint)" }}>{label}</td>
+      <td className="num" style={{ color: tone ?? (muted ? "var(--muted)" : "var(--ink)") }}>{value}</td>
     </tr>
   );
 }

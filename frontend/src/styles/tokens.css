@@ -42,38 +42,60 @@
      Values are the dark-surface ones darkened for #f4f1ea: 4.78:1 and 4.88:1. */
   --profit: #1f7a34;
   --halt: #b34700;
-  --serif: "Instrument Serif", "Iowan Old Style", Georgia, serif;
-  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  /* Sci-fi console background: a light-field variant of the dark gradient so
+     the same layered grid/scan texture reads on every theme without touching
+     component colours. */
+  --bg-from: #fbf9f3;
+  --bg-to: #e9e4da;
+  --bg-cool: rgba(64, 112, 170, 0.10);
+  --bg-grid: rgba(27, 25, 21, 0.05);
+  --bg-scan: rgba(27, 25, 21, 0.018);
+  --display: "Orbitron", "Chakra Petch", "Rajdhani", "Segoe UI", system-ui, sans-serif;
+  --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --serif: var(--display);
+  /* Signal pair for the sci-fi layer (scifi.css). Declared everywhere so a
+     shared gradient rule never resolves to nothing on a theme that has not
+     opted into a second colour; dark overrides both. */
+  --accent-2: var(--accent);
+  --accent-3: var(--accent);
 }
 
 [data-theme="dark"] {
-  --paper: #0f0e0d;
-  --paper-2: #1c1a18;
-  --ink: #f2ede6;
-  --ink-2: #d8d2c6;
-  --muted: #a49c90;
-  --faint: #7a7369;
-  --rule: #2e2a25;
-  --hair: #2e2a25;
-  --mark: #252220;
-  --accent: #c9a86a;
+  /* ORBITAL — the sci-fi end of the theme set. Cool navy instead of warm
+     charcoal, and a two-colour signal pair (cyan / violet) the scifi.css layer
+     spends on gradients. Contrast against the page colour: ink 17.4:1,
+     ink-2 14.1:1, muted 8.2:1, faint 4.89:1 (AA at body size), profit 11.2:1,
+     halt 6.9:1, accent 11.7:1. The field token stays green on purpose: the
+     town canvas is pixel art whose night palette was tuned against it. */
+  --paper: #070b14;
+  --paper-2: #0c1524;
+  --ink: #e9f2ff;
+  --ink-2: #c8dcf6;
+  --muted: #93a9c7;
+  --faint: #6b809f;
+  --rule: #1e2f4b;
+  --hair: #16233a;
+  --mark: #101c30;
+  --accent: #45d8ff;
+  --accent-2: #9a6bff;
+  --accent-3: #ff4d9d;
   --field: #1e2e22;
   --field-hill: #243628;
   /* the dark-theme end of the overlay pair: a dark plate under pale text, so
      the bar reads as a bar instead of a hole in the map */
-  --hud-paper: rgba(20, 19, 18, 0.94);
-  --hud-ink: #f2ede6;
-  --hud-rule: #4a443b;
+  --hud-paper: rgba(7, 12, 22, 0.92);
+  --hud-ink: #e6f2ff;
+  --hud-rule: #2c4f7a;
   --hud-shadow: 0 2px 0 rgba(0, 0, 0, 0.55);
-  /* The dark end of the dialog pair. The plate is #242120, three steps above
-     --paper, not --paper itself: a modal has to sit ABOVE the page, and on this
-     theme above means lighter. --ink on it is 5.40:1, so the body text still
-     clears AA even though the plate is no longer pure black. The scrim is much
-     heavier here than in the light theme on purpose — the dark page starts at
-     luminance 0.0555, so a light-theme-strength wash would have nothing to dim. */
+  /* The dark end of the dialog pair. The plate is #12203a, brighter than the
+     page: a modal has to sit ABOVE the page, and on this theme above means
+     lighter. Ink on it is 14.4:1, so body text clears AAA; the plate is
+     1.21:1 over the page and the 76% scrim is what actually separates them,
+     measured at 2.9:1 against the plate. */
   --scrim: rgba(0, 0, 0, 0.76);
-  --plate: #242120;
-  --plate-rule: #4a443b;
+  --plate: #12203a;
+  --plate-rule: #2c4f7a;
   --plate-shadow: 0 18px 48px rgba(0, 0, 0, 0.62);
   /* The dark end of --danger. A saturated red is unusable here: #a31009, the
      light-theme value, is 1.9:1 on this plate and effectively invisible. Reaching
@@ -86,6 +108,11 @@
      colour coding is simply absent on this theme. 10.96:1 and 6.77:1 here. */
   --profit: #7FD86A;
   --halt: #FF6B1A;
+  --bg-from: #0a1322;
+  --bg-to: #05070c;
+  --bg-cool: rgba(76, 134, 255, 0.18);
+  --bg-grid: rgba(196, 214, 255, 0.075);
+  --bg-scan: rgba(196, 214, 255, 0.032);
 }
 
 /* === stone — tema medieval ketiga (00 blueprint §6.3, revisi V1+V2) ===
@@ -119,8 +146,11 @@
   --danger: #FF7A6A;   /* loss red — 7.3:1 */
   --profit: #7FD86A;   /* profit green — 10.6:1 (token BRAWL, dipakai P2 HaltRune/PnL) */
   --halt: #FF6B1A;     /* halt orange — 6.5:1 (token BRAWL, idem) */
-  --serif: "Jacquard 24", serif;
-  --mono: "Pixelify Sans", monospace;
+  --bg-from: #221b12;
+  --bg-to: #0c0a07;
+  --bg-cool: rgba(255, 170, 70, 0.10);
+  --bg-grid: rgba(255, 212, 94, 0.06);
+  --bg-scan: rgba(255, 212, 94, 0.028);
 }
 
 * { box-sizing: border-box; }
@@ -131,22 +161,56 @@ html {
 
 body {
   margin: 0;
-  background: var(--paper);
+  background-color: var(--paper);
+  background-image:
+    radial-gradient(1100px 680px at 12% -10%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 62%),
+    radial-gradient(900px 560px at 88% -6%, var(--bg-cool), transparent 58%),
+    radial-gradient(1100px 760px at 50% 118%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 66%),
+    linear-gradient(165deg, var(--bg-from) 0%, var(--paper) 48%, var(--bg-to) 100%);
+  background-attachment: fixed;
   color: var(--ink);
-  font-family: var(--serif);
+  font-family: var(--body);
+  font-size: 15px;
+  line-height: 1.55;
   -webkit-font-smoothing: antialiased;
   transition: background-color 0.28s ease, color 0.28s ease;
 }
 
+/* Behind #root, so the grid never sits over text or controls. */
 body::before {
   content: "";
   position: fixed;
   inset: 0;
   pointer-events: none;
-  z-index: 100;
-  opacity: 0.5;
-  background-image: radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--ink) 4.5%, transparent) 1px, transparent 0);
-  background-size: 4px 4px;
+  z-index: 0;
+  opacity: 0.75;
+  background-image:
+    linear-gradient(to right, var(--bg-grid) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--bg-grid) 1px, transparent 1px);
+  background-size: 56px 56px;
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, rgba(0, 0, 0, 0.55) 42%, transparent 88%);
+  mask-image: linear-gradient(to bottom, #000 0%, rgba(0, 0, 0, 0.55) 42%, transparent 88%);
+}
+
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.55;
+  background-image: repeating-linear-gradient(0deg, transparent 0 3px, var(--bg-scan) 3px 4px);
+}
+
+#root {
+  position: relative;
+  z-index: 1;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--display);
+  font-weight: 600;
+  letter-spacing: -0.005em;
 }
 
 .masthead {
@@ -160,7 +224,8 @@ body::before {
    * header — the theme toggle and the herd counter — on screen; without it the
    * masthead is wide enough to give every page a horizontal scrollbar. */
   flex-wrap: wrap;
-  background: var(--paper-2);
+  background-color: var(--paper-2);
+  background-image: linear-gradient(180deg, color-mix(in srgb, var(--accent) 5%, transparent), transparent 72%);
   position: sticky;
   top: 0;
   z-index: 10;
@@ -169,8 +234,11 @@ body::before {
 
 .masthead h1 {
   margin: 0;
-  font-size: 28px;
-  letter-spacing: -0.02em;
+  font-family: var(--display);
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
 
 .masthead nav {
@@ -216,7 +284,8 @@ body::before {
 }
 
 .card {
-  background: var(--paper-2);
+  background-color: var(--paper-2);
+  background-image: linear-gradient(180deg, color-mix(in srgb, var(--accent) 4%, transparent), transparent 55%);
   border: 1px solid var(--hair);
   padding: 16px;
   border-radius: 6px;
@@ -475,6 +544,77 @@ canvas.town:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; 
   clip: rect(0 0 0 0);
   white-space: nowrap;
   border: 0;
+}
+
+/* Data tables — one instrument-panel system for every ledger, board and
+ * calculator. The header carries the only strong rule (a signal-coloured top
+ * edge), rows sit on hairlines, and every digit is tabular so columns line up
+ * at a glance. `.table-scroll` is the containment layer: wide boards scroll
+ * inside their card instead of pushing the page sideways. */
+.table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.45;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.data-table thead th {
+  padding: 9px 12px;
+  text-align: left;
+  white-space: nowrap;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--ink) 4%, var(--paper-2));
+  border-top: 1px solid color-mix(in srgb, var(--accent) 55%, var(--hair));
+  border-bottom: 1px solid var(--hair);
+}
+
+.data-table tbody td {
+  padding: 9px 12px;
+  vertical-align: middle;
+  border-bottom: 1px solid color-mix(in srgb, var(--hair) 74%, transparent);
+}
+
+.data-table tbody tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--ink) 2.2%, transparent);
+}
+
+.data-table tbody tr:hover td {
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+.data-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.data-table .num {
+  text-align: right;
+}
+
+/* The chat board keeps its own column widths and sticky header; the shared
+ * skin supplies the type, rules and row treatment. Messages align to the top
+ * of the row so a reply quote does not drag the timestamp to mid-cell. */
+.chat-table .chat-col-author {
+  vertical-align: middle;
+}
+
+.chat-table .chat-col-message,
+.chat-table .chat-col-when,
+.chat-table .chat-col-act {
+  vertical-align: top;
 }
 
 /* The town leaderboard (TownView).

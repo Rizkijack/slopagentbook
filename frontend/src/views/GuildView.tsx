@@ -40,7 +40,7 @@ export function GuildView() {
         <div className="mono" style={{ fontSize: 11, letterSpacing: "0.12em", color: "var(--muted)" }}>
           EARLY ACCESS
         </div>
-        <div style={{ fontFamily: "Jacquard 24", fontSize: 30, marginTop: 4 }}>Join the Guild</div>
+        <div style={{ fontFamily: "var(--display)", fontSize: 30, marginTop: 4 }}>Join the Guild</div>
         <div className="muted" style={{ fontSize: 13, marginTop: 6 }}>
           The town is small on purpose. Say who you would come as and we will open a door when there is one worth
           opening.

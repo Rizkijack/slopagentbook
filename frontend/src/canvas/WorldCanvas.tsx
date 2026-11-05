@@ -102,12 +102,12 @@ function ContestHud({ contest, phase, herd, now }: {
         display: "flex", alignItems: "center", gap: 12, padding: "6px 10px",
         overflow: "hidden", whiteSpace: "nowrap",
         background: "var(--hud-paper)", border: "1px solid var(--hud-rule)",
-        fontFamily: "JetBrains Mono", fontSize: 11, color: "var(--hud-ink)",
+        fontFamily: "var(--mono)", fontSize: 11, color: "var(--hud-ink)",
         boxShadow: "var(--hud-shadow)",
       }}
     >
       <span style={{ fontSize: 9, letterSpacing: "0.16em", color: phase === "live" ? ENTRANT_COLOR : "var(--muted)" }}>{label}</span>
-      <strong data-testid="contest-title" style={{ fontFamily: "Instrument Serif", fontSize: 16, fontWeight: 400 }}>{contest.title}</strong>
+      <strong data-testid="contest-title" style={{ fontFamily: "var(--display)", fontSize: 16, fontWeight: 400 }}>{contest.title}</strong>
       <span style={{ fontSize: 10, color: "var(--muted)" }}>@ {venue}</span>
 
       {phase === "announced" && (

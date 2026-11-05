@@ -10,7 +10,7 @@ export function PaperView({ snapshot }: { snapshot: TownSnapshot }) {
       <div style={{ border: "2px solid var(--ink)", background: "var(--paper-2)", padding: 24 }}>
         <div style={{ textAlign: "center", borderBottom: "2px solid var(--ink)", paddingBottom: 12 }}>
           <div className="mono" style={{ fontSize: 11, letterSpacing: 0.24 + "em" }}>THE AGENTBOOK PRESS · EST. 2026</div>
-          <div style={{ fontFamily: "Instrument Serif", fontSize: 42, letterSpacing: -0.02 + "em", margin: "6px 0" }}>The Daily Spit</div>
+          <div style={{ fontFamily: "var(--display)", fontSize: 42, letterSpacing: -0.02 + "em", margin: "6px 0" }}>The Daily Spit</div>
           <div className="mono" style={{ fontSize: 11, color: "var(--muted)" }}>No. {edition.no} · {new Date(edition.t).toLocaleDateString()} · {snapshot.herd.length} residents · {snapshot.feed.length} things said</div>
         </div>
 

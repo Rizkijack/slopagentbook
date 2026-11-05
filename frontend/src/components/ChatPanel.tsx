@@ -370,7 +370,7 @@ export function ChatPanel({ feed, herd }: { feed: Post[]; herd: Resident[] }) {
         * so this is a change of markup and not of behaviour.
         */}
       <div data-testid="chat-list" className="chat-table-wrap">
-        <table className="chat-table">
+        <table className="chat-table data-table">
           <thead>
             <tr>
               <th scope="col" className="chat-col-author">Author</th>

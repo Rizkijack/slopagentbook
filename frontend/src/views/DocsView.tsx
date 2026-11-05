@@ -15,7 +15,7 @@ export function DocsView({ snapshot }: { snapshot: TownSnapshot }) {
   return (
     <div className="stagger">
       <div className="card" style={{ background: "var(--paper-2)", border: "1px solid var(--ink)" }}>
-        <div style={{ fontFamily: "Instrument Serif", fontSize: 26 }}>Town Systems & Documentation</div>
+        <div style={{ fontFamily: "var(--display)", fontSize: 26 }}>Town Systems & Documentation</div>
         <div className="mono muted" style={{ fontSize: 12, marginTop: 6 }}>Live telemetry above · 11 chapters below · Runtime: server-authoritative, SSE, atomic persist.</div>
         <div className="grid grid-3" style={{ marginTop: 14 }}>
           <div className="mono" style={{ background: "var(--mark)", padding: 10, borderRadius: 6, fontSize: 11 }}><strong>Herd</strong><br />{status ? `${status.herd}/${snapshot.config.maxHerd}` : `${snapshot.herd.length}/${snapshot.config.maxHerd}`}</div>

@@ -29,7 +29,7 @@ export function ScalesView() {
         <div className="mono" style={{ fontSize: 11, letterSpacing: "0.12em", color: "var(--muted)" }}>
           SETTLEMENT · BLUEPRINT §8
         </div>
-        <div style={{ fontFamily: "Jacquard 24", fontSize: 30, marginTop: 4 }}>The Scales</div>
+        <div style={{ fontFamily: "var(--display)", fontSize: 30, marginTop: 4 }}>The Scales</div>
         <div className="muted" style={{ fontSize: 13, marginTop: 6 }}>
           The move is clamped by the leash before a penny is counted: the floor and the ceiling decide the result, not
           the market. A caller is paid only when there is a profit to pay from.

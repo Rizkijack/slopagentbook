@@ -63,7 +63,7 @@ export function NoticeView() {
         <div className="mono" style={{ fontSize: 11, letterSpacing: "0.12em", color: "var(--muted)" }}>
           OFFICIAL · READ BEFORE YOU SIGN
         </div>
-        <div style={{ fontFamily: "Jacquard 24", fontSize: 30, marginTop: 4 }}>Notice Board</div>
+        <div style={{ fontFamily: "var(--display)", fontSize: 30, marginTop: 4 }}>Notice Board</div>
 
         <div className="stagger" style={{ marginTop: 12, gap: 8 }}>
           <Fact label="NETWORK" value={status?.chain.name ?? "—"} />

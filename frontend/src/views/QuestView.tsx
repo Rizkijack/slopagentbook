@@ -88,7 +88,7 @@ function QuestCard({ q, onClaim, claiming, workerName }: { q: Quest; onClaim: (i
           {isClaimed && <span className="mono" style={{ fontSize: 10, background: "var(--hair)", color: "var(--muted)", padding: "2px 6px", borderRadius: 20 }}>done</span>}
         </div>
 
-        <div style={{ fontFamily: "Instrument Serif", fontSize: 18, lineHeight: 1, marginTop: 10, letterSpacing: "-0.01em" }}>{q.title}</div>
+        <div style={{ fontFamily: "var(--display)", fontSize: 18, lineHeight: 1, marginTop: 10, letterSpacing: "-0.01em" }}>{q.title}</div>
         <div className="mono" style={{ fontSize: 11, lineHeight: 1.5, color: "var(--ink-2)", marginTop: 6 }}>{q.description}</div>
 
         <div className="mono" style={{ fontSize: 10, color: "var(--faint)", marginTop: 10, display: "flex", gap: 8, alignItems: "center" }}>
@@ -203,7 +203,7 @@ export function QuestView({ snapshot }: { snapshot: TownSnapshot }) {
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
         <div>
           <div className="mono" style={{ fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--faint)" }}>Quest Board · Notice Board</div>
-          <div style={{ fontFamily: "Instrument Serif", fontSize: 32, lineHeight: 1, letterSpacing: "-0.02em", marginTop: 6 }}>Town Daily Quests</div>
+          <div style={{ fontFamily: "var(--display)", fontSize: 32, lineHeight: 1, letterSpacing: "-0.02em", marginTop: 6 }}>Town Daily Quests</div>
           <div className="mono" style={{ fontSize: 11, color: "var(--muted)", marginTop: 6, maxWidth: "60ch" }}>
             Every quest names the building it sends you to. Llama residents take one and go there themselves; an open quest is filled by whoever walks into the right building. Claim the reward when it's ready.
           </div>
@@ -235,7 +235,7 @@ export function QuestView({ snapshot }: { snapshot: TownSnapshot }) {
 
       {completed.length > 0 && (
         <div style={{ marginTop: 22 }}>
-          <div style={{ fontFamily: "Instrument Serif", fontSize: 18, color: "var(--ink)" }}>Ready to Claim · {completed.length}</div>
+          <div style={{ fontFamily: "var(--display)", fontSize: 18, color: "var(--ink)" }}>Ready to Claim · {completed.length}</div>
           <div className="mono" style={{ fontSize: 11, color: "var(--muted)", marginBottom: 8 }}>Finish them, then claim for spirits & project progress.</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 14 }}>
             {completed.map((q) => (

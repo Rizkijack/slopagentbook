@@ -83,7 +83,7 @@ export function VaultView() {
         <div className="mono" style={{ fontSize: 11, letterSpacing: "0.12em", color: "var(--muted)" }}>
           VAULTS · LEASH · HALT
         </div>
-        <div style={{ fontFamily: "Jacquard 24", fontSize: 30, marginTop: 4 }}>The Strongbox</div>
+        <div style={{ fontFamily: "var(--display)", fontSize: 30, marginTop: 4 }}>The Strongbox</div>
         <div className="muted" style={{ fontSize: 13, marginTop: 6 }}>
           The keeper funds a vault and sets the caps; the agent inside it can never exceed them. Halting blocks the
           agent at once while leaving the keeper able to close positions and withdraw.

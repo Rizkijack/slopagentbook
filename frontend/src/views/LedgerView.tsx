@@ -54,7 +54,7 @@ export function LedgerView() {
         <div className="mono" style={{ fontSize: 11, letterSpacing: "0.12em", color: "var(--muted)" }}>
           APPEND-ONLY · SETTLED TRADES
         </div>
-        <div style={{ fontFamily: "Jacquard 24", fontSize: 30, marginTop: 4 }}>The Ledger</div>
+        <div style={{ fontFamily: "var(--display)", fontSize: 30, marginTop: 4 }}>The Ledger</div>
         <div className="muted" style={{ fontSize: 13, marginTop: 6 }}>
           Every closed trade, its split between caller and keeper, and every refusal the leash made. Nothing is ever
           edited — a ledger that can be rewritten is a story, not a record.
@@ -86,52 +86,52 @@ export function LedgerView() {
           refused.length === 0 ? (
             <div className="muted" style={{ fontSize: 13, marginTop: 10 }}>Nothing was refused.</div>
           ) : (
-            <table style={{ width: "100%", marginTop: 10, fontSize: 13, borderCollapse: "collapse" }}>
-              <tbody>
-                {refused.map((r, i) => (
-                  <tr key={i} style={{ borderTop: "1px solid var(--hair)" }}>
-                    <td className="mono" style={{ padding: "6px 4px", fontSize: 11, color: "var(--halt)" }}>
-                      {r.reason ?? "refused"}
-                    </td>
-                    <td className="mono" style={{ padding: "6px 4px", fontSize: 11, color: "var(--faint)", textAlign: "right" }}>
-                      {r.t ? new Date(r.t).toLocaleString() : ""}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="table-scroll">
+              <table className="data-table">
+                <tbody>
+                  {refused.map((r, i) => (
+                    <tr key={i}>
+                      <td style={{ color: "var(--halt)" }}>{r.reason ?? "refused"}</td>
+                      <td className="num" style={{ color: "var(--faint)" }}>
+                        {r.t ? new Date(r.t).toLocaleString() : ""}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )
         ) : rows.length === 0 ? (
           <div className="muted" style={{ fontSize: 13, marginTop: 10 }}>No settled trades match that.</div>
         ) : (
-          <table style={{ width: "100%", marginTop: 10, fontSize: 13, borderCollapse: "collapse" }}>
-            <thead>
-              <tr className="mono" style={{ fontSize: 10, color: "var(--faint)", textAlign: "left" }}>
-                <th style={{ padding: "4px" }}>TRADE</th>
-                <th style={{ padding: "4px" }}>AGENT</th>
-                <th style={{ padding: "4px" }}>PNL</th>
-                <th style={{ padding: "4px" }}>CALLER</th>
-                <th style={{ padding: "4px" }}>KEEPER</th>
-                <th style={{ padding: "4px", textAlign: "right" }}>WHEN</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.slice(-200).reverse().map((e) => (
-                <tr key={e.tradeId} style={{ borderTop: "1px solid var(--hair)" }}>
-                  <td className="mono" style={{ padding: "6px 4px", fontSize: 11 }}>{e.tradeId.slice(0, 12)}…</td>
-                  <td className="mono" style={{ padding: "6px 4px", fontSize: 11 }}>{e.agentId.slice(0, 10)}…</td>
-                  <td className="mono" style={{ padding: "6px 4px", color: e.pnl >= 0 ? "var(--profit)" : "var(--halt)" }}>
-                    {e.pnl >= 0 ? "+" : ""}{e.pnl.toFixed(4)}
-                  </td>
-                  <td className="mono" style={{ padding: "6px 4px", color: "var(--muted)" }}>{e.callerPaid.toFixed(4)}</td>
-                  <td className="mono" style={{ padding: "6px 4px", color: "var(--muted)" }}>{e.keeperPaid.toFixed(4)}</td>
-                  <td className="mono" style={{ padding: "6px 4px", fontSize: 11, color: "var(--faint)", textAlign: "right" }}>
-                    {new Date(e.t).toLocaleString()}
-                  </td>
+          <div className="table-scroll">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">TRADE</th>
+                  <th scope="col">AGENT</th>
+                  <th scope="col" className="num">PNL</th>
+                  <th scope="col" className="num">CALLER</th>
+                  <th scope="col" className="num">KEEPER</th>
+                  <th scope="col" className="num">WHEN</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {rows.slice(-200).reverse().map((e) => (
+                  <tr key={e.tradeId}>
+                    <td>{e.tradeId.slice(0, 12)}…</td>
+                    <td>{e.agentId.slice(0, 10)}…</td>
+                    <td className="num" style={{ color: e.pnl >= 0 ? "var(--profit)" : "var(--halt)" }}>
+                      {e.pnl >= 0 ? "+" : ""}{e.pnl.toFixed(4)}
+                    </td>
+                    <td className="num" style={{ color: "var(--muted)" }}>{e.callerPaid.toFixed(4)}</td>
+                    <td className="num" style={{ color: "var(--muted)" }}>{e.keeperPaid.toFixed(4)}</td>
+                    <td className="num" style={{ color: "var(--faint)" }}>{new Date(e.t).toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
@@ -140,32 +140,34 @@ export function LedgerView() {
         {board.length === 0 ? (
           <div className="muted" style={{ fontSize: 13, marginTop: 8 }}>No callers on the board yet.</div>
         ) : (
-          <table style={{ width: "100%", marginTop: 10, fontSize: 13, borderCollapse: "collapse" }}>
-            <thead>
-              <tr className="mono" style={{ fontSize: 10, color: "var(--faint)", textAlign: "left" }}>
-                <th style={{ padding: "4px" }}>#</th>
-                <th style={{ padding: "4px" }}>AGENT</th>
-                <th style={{ padding: "4px" }}>TRADES</th>
-                <th style={{ padding: "4px" }}>WINS</th>
-                <th style={{ padding: "4px" }}>WIN RATE</th>
-                <th style={{ padding: "4px", textAlign: "right" }}>TOTAL PNL</th>
-              </tr>
-            </thead>
-            <tbody>
-              {board.map((row, i) => (
-                <tr key={row.agentId} style={{ borderTop: "1px solid var(--hair)" }}>
-                  <td className="mono" style={{ padding: "6px 4px", color: "var(--faint)" }}>{i + 1}</td>
-                  <td className="mono" style={{ padding: "6px 4px", fontSize: 11 }}>{row.agentId.slice(0, 12)}…</td>
-                  <td className="mono" style={{ padding: "6px 4px" }}>{row.trades}</td>
-                  <td className="mono" style={{ padding: "6px 4px", color: "var(--muted)" }}>{row.wins}</td>
-                  <td className="mono" style={{ padding: "6px 4px" }}>{(row.winRate * 100).toFixed(0)}%</td>
-                  <td className="mono" style={{ padding: "6px 4px", textAlign: "right", color: row.totalPnl >= 0 ? "var(--profit)" : "var(--halt)" }}>
-                    {row.totalPnl >= 0 ? "+" : ""}{row.totalPnl.toFixed(4)}
-                  </td>
+          <div className="table-scroll">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th scope="col" className="num">#</th>
+                  <th scope="col">AGENT</th>
+                  <th scope="col" className="num">TRADES</th>
+                  <th scope="col" className="num">WINS</th>
+                  <th scope="col" className="num">WIN RATE</th>
+                  <th scope="col" className="num">TOTAL PNL</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {board.map((row, i) => (
+                  <tr key={row.agentId}>
+                    <td className="num" style={{ color: "var(--faint)" }}>{i + 1}</td>
+                    <td>{row.agentId.slice(0, 12)}…</td>
+                    <td className="num">{row.trades}</td>
+                    <td className="num" style={{ color: "var(--muted)" }}>{row.wins}</td>
+                    <td className="num">{(row.winRate * 100).toFixed(0)}%</td>
+                    <td className="num" style={{ color: row.totalPnl >= 0 ? "var(--profit)" : "var(--halt)" }}>
+                      {row.totalPnl >= 0 ? "+" : ""}{row.totalPnl.toFixed(4)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>

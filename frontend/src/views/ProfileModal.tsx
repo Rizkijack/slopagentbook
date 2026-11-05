@@ -213,7 +213,7 @@ export function ProfileModal({
             testId="profile-avatar"
           />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div id="profile-title" style={{ fontFamily: "Instrument Serif", fontSize: 24, lineHeight: 1.15 }}>
+            <div id="profile-title" style={{ fontFamily: "var(--display)", fontSize: 24, lineHeight: 1.15 }}>
               {resident.name}
             </div>
             <div className="mono" style={{ fontSize: 12, color: "var(--ink)" }}>
@@ -460,7 +460,7 @@ const inputStyle: React.CSSProperties = {
   fontSize: 13,
   background: "var(--paper)",
   color: "var(--ink)",
-  fontFamily: "JetBrains Mono",
+  fontFamily: "var(--mono)",
 };
 
 /** The host shown beside a link, so a resident's destinations are legible at a glance. */

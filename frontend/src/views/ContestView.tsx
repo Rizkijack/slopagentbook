@@ -32,7 +32,7 @@ function RankChip({ rank }: { rank: number }) {
       data-rank={rank}
       style={{
         display: "inline-block", minWidth: 16, textAlign: "center", padding: "1px 4px",
-        fontFamily: "JetBrains Mono", fontSize: 10, color: "var(--ink)",
+        fontFamily: "var(--mono)", fontSize: 10, color: "var(--ink)",
         background: RANK_COLORS[rank - 1] ?? ENTRANT_COLOR,
       }}
     >
@@ -52,7 +52,7 @@ export function ContestView({ snapshot, id }: { snapshot: TownSnapshot; id?: str
         <div className="mono" style={{ fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--faint)" }}>
           Hermes Trials
         </div>
-        <div style={{ fontFamily: "Instrument Serif", fontSize: 22, marginTop: 8 }}>
+        <div style={{ fontFamily: "var(--display)", fontSize: 22, marginTop: 8 }}>
           {id ? "That contest is not in this save." : "No contest id in the route."}
         </div>
         <div className="mono muted" style={{ fontSize: 11, marginTop: 6 }}>
@@ -78,7 +78,7 @@ export function ContestView({ snapshot, id }: { snapshot: TownSnapshot; id?: str
         </div>
 
         <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginTop: 6, flexWrap: "wrap" }}>
-          <div style={{ fontFamily: "Instrument Serif", fontSize: 30, lineHeight: 1, letterSpacing: "-0.02em" }}>{contest.title}</div>
+          <div style={{ fontFamily: "var(--display)", fontSize: 30, lineHeight: 1, letterSpacing: "-0.02em" }}>{contest.title}</div>
           <span
             data-testid="contest-state"
             data-state={contest.state}
@@ -93,7 +93,7 @@ export function ContestView({ snapshot, id }: { snapshot: TownSnapshot; id?: str
           <span className="mono" style={{ fontSize: 10, color: "var(--faint)" }}>{contest.id}</span>
         </div>
 
-        <div style={{ fontFamily: "Instrument Serif", fontSize: 16, fontStyle: "italic", color: "var(--ink-2)", marginTop: 8, maxWidth: "72ch" }}>
+        <div style={{ fontFamily: "var(--display)", fontSize: 16, fontStyle: "italic", color: "var(--ink-2)", marginTop: 8, maxWidth: "72ch" }}>
           {contest.narration}
         </div>
 
@@ -117,7 +117,7 @@ export function ContestView({ snapshot, id }: { snapshot: TownSnapshot; id?: str
           {contest.entrants.map((agentId, i) => {
             const rank = standings.find((s) => s.agentId === agentId)?.rank;
             return (
-              <span key={agentId} data-testid="contest-entrant" style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `1px solid ${ENTRANT_COLOR}`, padding: "3px 8px", fontFamily: "JetBrains Mono", fontSize: 11 }}>
+              <span key={agentId} data-testid="contest-entrant" style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `1px solid ${ENTRANT_COLOR}`, padding: "3px 8px", fontFamily: "var(--mono)", fontSize: 11 }}>
                 {rank ? <RankChip rank={rank} /> : <span style={{ width: 6, height: 6, borderRadius: 999, background: ENTRANT_COLOR, display: "inline-block" }} />}
                 {nameOf(agentId)}
               </span>
@@ -133,7 +133,7 @@ export function ContestView({ snapshot, id }: { snapshot: TownSnapshot; id?: str
       <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 16 }}>
         <div className="card">
           <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
-            <div style={{ fontFamily: "Instrument Serif", fontSize: 14 }}>{contest.state === "resolved" ? "Result" : "Running order"}</div>
+            <div style={{ fontFamily: "var(--display)", fontSize: 14 }}>{contest.state === "resolved" ? "Result" : "Running order"}</div>
             <div className="mono" style={{ fontSize: 10, color: "var(--faint)" }}>
               {contest.state === "resolved" ? (contest.result?.voidResult ? "VOID · no points" : "rank points 10/5/1") : "ticks at venue"}
             </div>
@@ -145,7 +145,7 @@ export function ContestView({ snapshot, id }: { snapshot: TownSnapshot; id?: str
             {contest.state === "resolved" && contest.result && (
               <ol style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 8 }}>
                 {standings.map((s) => (
-                  <li key={s.agentId} data-testid="standing-row" style={{ display: "flex", alignItems: "center", gap: 10, fontFamily: "JetBrains Mono", fontSize: 12 }}>
+                  <li key={s.agentId} data-testid="standing-row" style={{ display: "flex", alignItems: "center", gap: 10, fontFamily: "var(--mono)", fontSize: 12 }}>
                     <RankChip rank={s.rank} />
                     <span style={{ fontWeight: s.rank === 1 ? 700 : 400 }}>{nameOf(s.agentId)}</span>
                     <span className="muted" style={{ fontSize: 11, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.detail}</span>
@@ -157,7 +157,7 @@ export function ContestView({ snapshot, id }: { snapshot: TownSnapshot; id?: str
             {contest.state !== "resolved" && (
               <ol style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 8 }}>
                 {provisional.map((row, i) => (
-                  <li key={row.agentId} data-testid="standing-row" style={{ display: "flex", alignItems: "center", gap: 10, fontFamily: "JetBrains Mono", fontSize: 12 }}>
+                  <li key={row.agentId} data-testid="standing-row" style={{ display: "flex", alignItems: "center", gap: 10, fontFamily: "var(--mono)", fontSize: 12 }}>
                     <span style={{ color: RANK_COLORS[i] ?? ENTRANT_COLOR, width: 14 }}>{i + 1}.</span>
                     <span>{row.name}</span>
                     <span style={{ flex: 1, borderBottom: "1px dotted var(--hair)" }} />
@@ -172,14 +172,14 @@ export function ContestView({ snapshot, id }: { snapshot: TownSnapshot; id?: str
 
         <div className="card">
           <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
-            <div style={{ fontFamily: "Instrument Serif", fontSize: 14 }}>Season {season?.no ?? 1} table</div>
+            <div style={{ fontFamily: "var(--display)", fontSize: 14 }}>Season {season?.no ?? 1} table</div>
             <div className="mono" style={{ fontSize: 10, color: "var(--faint)" }}>{season?.state ?? "—"}</div>
           </div>
           {!season && <div className="mono muted" style={{ fontSize: 11, marginTop: 10 }}>No season standings in this save.</div>}
           {season && (
             <div style={{ marginTop: 10, display: "flex", flexDirection: "column" }}>
               {season.standings.slice(0, 8).map((s, i) => (
-                <div key={s.agentId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0", borderTop: i === 0 ? "1px solid var(--hair)" : "1px solid color-mix(in srgb, var(--hair) 60%, transparent)", fontFamily: "JetBrains Mono", fontSize: 12 }}>
+                <div key={s.agentId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0", borderTop: i === 0 ? "1px solid var(--hair)" : "1px solid color-mix(in srgb, var(--hair) 60%, transparent)", fontFamily: "var(--mono)", fontSize: 12 }}>
                   <span style={{ color: RANK_COLORS[i] ?? "var(--muted)", width: 14 }}>{i + 1}.</span>
                   <span style={{ flex: 1 }}>{nameOf(s.agentId)}</span>
                   <span className="muted" style={{ fontSize: 11 }}>{s.wins}W-{s.losses}L</span>

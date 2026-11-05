@@ -14,24 +14,35 @@
   --bl-stone-hi: #6a5940;
   --bl-mute: #a89880;
   --bl-faint: #6f6350;
-  background: var(--bl-bg);
+  background-color: #0b0f17;
+  background-image:
+    linear-gradient(to right, rgba(227, 212, 168, 0.035) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(227, 212, 168, 0.035) 1px, transparent 1px),
+    radial-gradient(900px 560px at 84% -8%, color-mix(in srgb, var(--bl-gold) 14%, transparent), transparent 62%),
+    radial-gradient(760px 520px at 6% 0%, rgba(80, 140, 255, 0.16), transparent 60%),
+    linear-gradient(180deg, #0c1424 0%, var(--bl-bg) 52%, #070a10 100%);
+  background-size: 48px 48px, 48px 48px, auto, auto, auto;
   color: var(--bl-parch);
-  font-family: "Pixelify Sans", monospace;
+  font-family: var(--body);
+  line-height: 1.6;
   border-radius: 12px;
   overflow: hidden;
   margin-bottom: 24px;
 }
 
 .bl-landing .bl-display {
-  font-family: "Jacquard 24", serif;
-  font-weight: 400;
+  font-family: var(--display);
+  font-weight: 600;
+  letter-spacing: 0.01em;
   color: var(--bl-gold);
-  text-shadow: 2px 2px 0 #000;
+  text-shadow: 0 0 28px color-mix(in srgb, var(--bl-gold) 30%, transparent);
 }
 
 .bl-landing .bl-kicker {
-  font-size: 11px;
-  letter-spacing: 0.22em;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.24em;
   text-transform: uppercase;
   color: var(--bl-orange);
 }
@@ -94,8 +105,11 @@
 }
 .bl-landing .bl-btn {
   display: inline-block;
-  font-family: "Pixelify Sans", monospace;
-  font-size: 14px;
+  font-family: var(--display);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
   padding: 10px 20px;
   text-decoration: none;
   border: 3px solid var(--bl-ink);
@@ -166,11 +180,12 @@
 }
 .bl-landing .bl-card h4 {
   margin: 0 0 8px;
-  font-family: "Jacquard 24", serif;
-  font-weight: 400;
-  font-size: 24px;
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 21px;
+  letter-spacing: 0.01em;
   color: var(--bl-gold);
-  text-shadow: 1px 1px 0 #000;
+  text-shadow: 0 0 18px color-mix(in srgb, var(--bl-gold) 24%, transparent);
 }
 .bl-landing .bl-card p {
   margin: 0 0 12px;
@@ -201,8 +216,9 @@
   margin-top: 20px;
 }
 .bl-landing .bl-quest .bl-qtitle {
-  font-family: "Jacquard 24", serif;
-  font-size: 30px;
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 26px;
   color: #2a2016;
   text-shadow: none;
   margin: 8px 0 6px;
@@ -224,20 +240,35 @@
   width: 100%;
   border-collapse: collapse;
   margin-top: 16px;
-  font-size: 14px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
 }
 .bl-landing .bl-table th,
 .bl-landing .bl-table td {
   text-align: left;
   padding: 10px 12px;
-  border-bottom: 1px solid var(--bl-stone-hi);
+  border-bottom: 1px solid color-mix(in srgb, var(--bl-stone-hi) 72%, transparent);
 }
 .bl-landing .bl-table th {
   color: var(--bl-faint);
-  font-size: 11px;
-  letter-spacing: 0.14em;
+  font-size: 9px;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
-  font-weight: 400;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--bl-gold) 5%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--bl-gold) 55%, transparent);
+  border-bottom-color: var(--bl-stone-hi);
+}
+.bl-landing .bl-table tbody tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--bl-parch) 3%, transparent);
+}
+.bl-landing .bl-table tbody tr:hover td {
+  background: color-mix(in srgb, var(--bl-gold) 7%, transparent);
+}
+.bl-landing .bl-table .num {
+  text-align: right;
 }
 .bl-landing .bl-table td.bl-gold-td {
   color: var(--bl-gold);
@@ -251,7 +282,9 @@
 .bl-landing details.bl-faq summary {
   cursor: pointer;
   padding: 14px 18px;
+  font-family: var(--display);
   font-size: 15px;
+  font-weight: 500;
   color: var(--bl-gold);
   list-style: none;
   display: flex;
@@ -321,7 +354,8 @@
   align-items: center;
   gap: 12px;
   padding: 10px 18px;
-  background: #0b0d12;
+  background-color: #0b0d12;
+  background-image: linear-gradient(90deg, color-mix(in srgb, var(--bl-gold) 6%, transparent), transparent 55%);
   border-bottom: 3px solid var(--bl-ink);
   line-height: 1.2;
 }
@@ -332,11 +366,13 @@
   image-rendering: pixelated;
 }
 .bl-landing .bl-brandbar-word {
-  font-family: "Pixelify Sans", monospace;
-  font-size: 22px;
-  letter-spacing: 0.08em;
+  font-family: var(--display);
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
   color: var(--bl-gold);
-  text-shadow: 2px 2px 0 #000;
+  text-shadow: 0 0 20px color-mix(in srgb, var(--bl-gold) 32%, transparent);
 }
 .bl-landing .bl-bannerhero {
   line-height: 0;
