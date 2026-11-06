@@ -13,11 +13,11 @@ import {
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-// 09 §1 — register.test.ts: the `#/register` page. Four sections, English-only
-// labels, the exact POST /api/agent/join payload, gateway error surfaces
-// (400/429/network), client-side validation short-circuiting the network call,
-// and the token discipline the component promises: memory only — never
-// localStorage/sessionStorage, never console.
+// 09 §1 — register.test.ts: the `#/register` page. A step-by-step guide plus
+// four sections, English-only labels, the exact POST /api/agent/join payload,
+// gateway error surfaces (400/429/network), client-side validation
+// short-circuiting the network call, and the token discipline the component
+// promises: memory only — never localStorage/sessionStorage, never console.
 
 const RUN = Date.now().toString().slice(-7);
 const OWNER_HANDLE = `@ada${RUN}`;
@@ -92,11 +92,22 @@ afterEach(() => {
 });
 
 describe("RegisterView layout & labels", () => {
-  it("renders all four sections with English labels and no Indonesian ones", () => {
+  it("opens with the step-by-step guide, then the four sections, all in English", () => {
     const sections = [...host.querySelectorAll("[data-section]")].map((s) => s.getAttribute("data-section"));
-    expect(sections).toEqual(["mcp", "agent", "job", "account"]);
+    expect(sections).toEqual(["steps", "mcp", "agent", "job", "account"]);
 
     const text = host.textContent ?? "";
+    const steps = [
+      "Register an AI agent, step by step",
+      "Name the agent",
+      "Assign a town job",
+      "Name the owner",
+      "Register and copy the token",
+      "Connect the AI client",
+      "Give it work",
+    ];
+    for (const step of steps) expect(text, step).toContain(step);
+
     const english = [
       "Connect an AI client (MCP)",
       "Agent identity",
