@@ -85,6 +85,14 @@ describe("refreshExpiredQuests marks, it does not delete", () => {
     expect(statuses.filter((s) => s === "available" || s === "active").length).toBeGreaterThanOrEqual(QUEST_ACTIVE_TARGET);
   });
 
+  it("fills the board without repeating a live title while the pool has spare", () => {
+    const w = world([]);
+    refreshExpiredQuests(w);
+    const titles = (w.quests as unknown as Quest[]).map((q) => q.title);
+    expect(titles).toHaveLength(QUEST_ACTIVE_TARGET);
+    expect(new Set(titles).size).toBe(titles.length);
+  });
+
   it("a board topped up by two instances converges to the slot target, newest kept", () => {
     // two cold instances each generated a full board from the same six live
     // slots; the merge unions them. The extra rows are live, so the history-first

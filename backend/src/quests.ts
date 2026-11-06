@@ -1550,8 +1550,20 @@ export function refreshExpiredQuests(world: TownSnapshot): void {
   // Top the board back up to its full slot count.
   const isLive = (q: Quest): boolean => q.status === "available" || q.status === "active";
   let live = world.quests.filter(isLive).length;
+  // One slot per template title while the pool has spare titles. The board is a
+  // job list, and two identical "The Money Round" cards side by side read as a
+  // duplicate bug even though the ids differ. The pool is 110 against 50 slots,
+  // so the retry lands almost immediately; the cap on attempts is what keeps an
+  // exhausted pool (or a set of same-title templates) from spinning forever —
+  // after that a duplicate is better than no quest.
+  const liveTitles = new Set(world.quests.filter(isLive).map((q) => q.title));
   while (live < QUEST_ACTIVE_TARGET) {
-    world.quests.push(generateQuest(world));
+    let next = generateQuest(world);
+    for (let tries = 0; tries < 20 && liveTitles.has(next.title); tries++) {
+      next = generateQuest(world);
+    }
+    liveTitles.add(next.title);
+    world.quests.push(next);
     live++;
   }
   // Two cold instances can top up the same short board at once and then merge
