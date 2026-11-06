@@ -7,6 +7,7 @@ import { useTheme } from "./store/useTheme.js";
 import { useSession } from "./store/useSession.js";
 import { ThinkingPanel } from "./components/ThinkingPanel.js";
 import { StatusStrip } from "./components/StatusStrip.js";
+import { WalletMenu } from "./components/WalletMenu.js";
 import { SoundtrackToggle } from "./components/SoundtrackToggle.js";
 import { TownView } from "./views/TownView.js";
 // Route-level code splitting: TownView lives in the main chunk, every other
@@ -146,6 +147,7 @@ export default function App() {
           <Link to="docs" className={page === "docs" ? "active" : ""}>Docs</Link>
         </nav>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+          <WalletMenu />
           <StatusStrip />
           <button className="theme-toggle" onClick={toggle} aria-label={`Switch to ${next} mode`} title={`Theme: ${theme} — click to toggle`}>
             <span className="dot" aria-hidden />

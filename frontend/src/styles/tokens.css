@@ -691,6 +691,100 @@ canvas.town:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; 
   .chat-author-handle { display: none; }
 }
 
+/* ── Wallet control (masthead) ─────────────────────────────────────────────
+ * Disconnected it is one compact ghost button. Connected it is the address and
+ * nothing else; the disclosure under it is the wallet table, where Disconnect
+ * lives. The popover is a plate with a shadow — the same raised surface a
+ * dialog uses — but it hangs off the chip rather than dimming the page, and it
+ * dismisses on outside click / Escape.
+ */
+.wallet-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.wallet-connect {
+  padding: 6px 10px;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.wallet-chip {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  padding: 6px 10px;
+  border: 1px solid var(--hair);
+  background: var(--paper-2);
+  color: var(--ink);
+  border-radius: 20px;
+  cursor: pointer;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+.wallet-chip:hover,
+.wallet-chip[aria-expanded="true"] {
+  border-color: var(--ink);
+  background: var(--mark);
+}
+.wallet-chip:focus-visible,
+.wallet-connect:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.wallet-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  width: min(92vw, 420px);
+  padding: 12px;
+  background: var(--plate);
+  border: 1px solid var(--plate-rule);
+  border-radius: 6px;
+  box-shadow: var(--plate-shadow);
+}
+
+.wallet-popover-head {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin-bottom: 8px;
+}
+
+.wallet-table { font-size: 11px; }
+.wallet-table thead th,
+.wallet-table tbody td { padding: 7px 8px; }
+.wallet-address { word-break: break-all; font-size: 10px; line-height: 1.35; }
+.wallet-disconnect { padding: 4px 8px; font-size: 9px; white-space: nowrap; }
+
+.wallet-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.wallet-list .btn {
+  display: inline-flex;
+  align-items: center;
+  width: 100%;
+  justify-content: flex-start;
+  text-align: left;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 12px;
+  padding: 8px 10px;
+}
+
+.wallet-note,
+.wallet-error {
+  margin: 8px 0 0;
+  font-size: 10px;
+  line-height: 1.45;
+}
+.wallet-note { color: var(--faint); }
+.wallet-error { color: var(--danger); }
+
 /* theme toggle */
 .theme-toggle {
   display: inline-flex;
@@ -818,6 +912,18 @@ input[type="range"]::-moz-range-thumb {
   .page { padding: 14px; }
   .grid { gap: 12px; }
   .card { padding: 12px; }
+  /* The wrapped masthead no longer gives the chip a predictable anchor, so the
+     wallet popover becomes a bottom sheet instead of hanging off the viewport. */
+  .wallet-popover {
+    position: fixed;
+    top: auto;
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    width: auto;
+    max-height: 70vh;
+    overflow-y: auto;
+  }
 }
 
 /* prefers-reduced-motion: every animation off (§6.4).
