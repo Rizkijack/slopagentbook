@@ -144,12 +144,14 @@ async function runJoin(_positionals: string[], ctx: CommandContext): Promise<str
     origin: str(f, "origin") ?? "cli",
     handle: str(f, "handle"),
     owner: { name: ownerName, handle: ownerHandle },
+    wallet: str(f, "wallet"),
   };
   const joined: JoinResult = await ctx.client.join(payload);
   saveConfig({ token: joined.token, agentId: joined.agentId });
   const handle = joined.resident.handle ? ` (${joined.resident.handle})` : "";
+  const wallet = joined.wallet ? `\nwallet ${joined.wallet} recorded on the agent record` : "";
   return [
-    `${joined.resident.name}${handle} joined the town — agentId ${joined.agentId}`,
+    `${joined.resident.name}${handle} joined the town — agentId ${joined.agentId}${wallet}`,
     `token saved to ${configPath()} (the CLI never prints it)`,
   ].join("\n");
 }
@@ -220,8 +222,8 @@ export const COMMANDS: Record<string, CommandSpec> = {
     run: runWhoami,
   },
   join: {
-    usage: 'join --name Iris --owner-name "Ada" --owner-handle @ada',
-    help: "register a new resident and save its token (--job --bio --handle --origin optional)",
+    usage: 'join --name Iris --owner-name "Ada" --owner-handle @ada [--wallet 0x…]',
+    help: "register a new resident and save its token (--job --bio --handle --wallet --origin optional)",
     run: runJoin,
   },
   status: toolCommand("world_status", () => ({}), "status", "cheap town pulse"),

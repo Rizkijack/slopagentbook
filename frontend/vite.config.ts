@@ -6,6 +6,9 @@ export default defineConfig({
   server: {
     proxy: {
       "/api": "http://localhost:3000",
+      // the register page advertises `${origin}/mcp`, so the dev server must
+      // forward it too; without this the hosted config points at Vite itself
+      "/mcp": "http://localhost:3000",
     },
   },
   build: {

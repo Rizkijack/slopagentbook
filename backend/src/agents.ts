@@ -1,4 +1,5 @@
 import { randomBytes, createHash, timingSafeEqual } from "node:crypto";
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import type { TownSnapshot, Resident, AgentRecord } from "@slopagentbook/shared";
 import { Hc, rf, encodeGenes } from "@slopagentbook/shared";
 import { createAgentResident, makeResidentFromFork } from "./world.js";
@@ -321,6 +322,15 @@ export interface JoinInput {
   avatar?: string;
   /** External links, in the owner's order. Same rules as the profile endpoint's `links`. */
   links?: { label: string; url: string }[];
+  /**
+   * The agent's own wallet — EVM `0x` + 40 hex. Supplied (custom) or omitted;
+   * when omitted the backend generates one. The gateway schema validates the
+   * shape too; this check exists because JoinInput is exported and joinWorld
+   * writes straight into shared state.
+   */
+  wallet?: string;
+  /** The wallet the human connected in the browser to unlock registration (web gate). */
+  ownerWallet?: string;
 }
 
 export interface JoinResult {
@@ -328,6 +338,10 @@ export interface JoinResult {
   token: string;
   resident: Resident;
   owner?: { name: string; handle: string };
+  wallet?: string;
+  /** only set when the backend generated the wallet — shown to the operator once */
+  walletKey?: string;
+  ownerWallet?: string;
 }
 
 /**
@@ -367,6 +381,19 @@ export function joinWorld(world: TownSnapshot, input: JoinInput): JoinResult {
     if (owner.name.length < 1 || owner.name.length > 64) throw new AgentError("owner name must be 1-64 characters");
     if (owner.handle.length < 1 || owner.handle.length > 64) throw new AgentError("owner handle must be 1-64 characters");
     if (SINGLE_LINE_CONTROL.test(owner.name + owner.handle)) throw new AgentError("invalid characters");
+  }
+
+  // agent wallet: shape-checked before any mutation (same ordering rule); the
+  // gateway schema carries the same regex — one message either way. No wallet
+  // in the payload means the backend GENERATES one (operator decision
+  // 2026-11-06: custom or auto-generated, never absent).
+  const wallet = input.wallet;
+  if (wallet !== undefined && !/^0x[0-9a-fA-F]{40}$/.test(wallet)) {
+    throw new AgentError("wallet must be an EVM address (0x + 40 hex characters)");
+  }
+  const ownerWallet = input.ownerWallet;
+  if (ownerWallet !== undefined && !/^0x[0-9a-fA-F]{40}$/.test(ownerWallet)) {
+    throw new AgentError("owner wallet must be an EVM address (0x + 40 hex characters)");
   }
 
   if (world.herd.some((h) => h.name.toLowerCase() === name.toLowerCase())) throw new AgentError("name already taken");
@@ -412,11 +439,27 @@ export function joinWorld(world: TownSnapshot, input: JoinInput): JoinResult {
     lastActAt: now,
   };
   if (owner) record.owner = { name: owner.name, handle: owner.handle };
+  if (ownerWallet !== undefined) record.ownerWallet = ownerWallet;
+
+  // the agent always ends up with a wallet: the operator's custom address, or
+  // one generated here. A generated wallet's private key rides on the record
+  // (operator decision, shared/src/types.ts) — auth/identity never depends on it.
+  let walletKey: string | undefined;
+  if (wallet !== undefined) {
+    record.wallet = wallet;
+  } else {
+    walletKey = generatePrivateKey();
+    record.wallet = privateKeyToAccount(walletKey).address;
+    record.walletKey = walletKey;
+  }
+  // operator decision 2026-11-06 (shared/src/types.ts): the raw token is kept
+  // on the record on purpose — auth still goes through tokenHash
+  record.token = token;
 
   world.agents ??= [];
   world.agents.push(record);
 
-  return { agentId: record.id, token, resident, owner: record.owner };
+  return { agentId: record.id, token, resident, owner: record.owner, wallet: record.wallet, walletKey, ownerWallet: record.ownerWallet };
 }
 
 /**

@@ -143,10 +143,10 @@ export const ENTRANT_COLOR = "#7a5cc4";
  */
 
 /** Name-tag text height, in screen px. Fixed: the tag does not scale. */
-const TAG_PX = 8;
+const TAG_PX = 16;
 
-/** Name-tag box height, in screen px — the caption plus its 3px descender room. */
-const TAG_H = 11;
+/** Name-tag box height, in screen px — the caption plus its 6px descender room. */
+const TAG_H = 22;
 
 /** Vertical gap between two stacked tag rows. */
 const TAG_ROW_STEP = TAG_H + 1;
@@ -359,7 +359,7 @@ export class Xf {
    * as long as the camera stayed still.
    *
    * This is what replaces the zoom gate the tags used to sit behind. At the
-   * whole-town zoom a fixed 8px tag covers many times the resident it names, so
+   * whole-town zoom a fixed-size tag covers many times the resident it names, so
    * dropping them hid the town they were labelling; letting them all draw at once
    * buried it instead. A tag that cannot have its own row takes the next one up,
    * so density becomes a taller stack rather than an unreadable overlap.
@@ -480,20 +480,20 @@ export class Xf {
    *
    * Fixed rather than scaled: a tag scaled with the world is unreadable when the
    * camera pulls back, which is exactly when someone is looking for a resident
-   * they cannot see. Fixed keeps it the same 8px at MIN_ZOOM and at MAX_ZOOM.
+   * they cannot see. Fixed keeps it the same size at MIN_ZOOM and at MAX_ZOOM.
    */
   private drawNameTag(ctx: CanvasRenderingContext2D, a: { id: string; name: string }, sx: number, sy: number): void {
-    const halfW = (a.name.length * 4.8 + 7) / 2;
+    const halfW = (a.name.length * 9.6 + 14) / 2;
     const y = this.tagRow(sx, sy, halfW);
     ctx.font = `${TAG_PX}px IBM Plex Mono`;
     ctx.textAlign = "center";
     ctx.fillStyle = "rgba(244,241,234,0.92)";
     ctx.fillRect(sx - halfW, y, halfW * 2, TAG_H);
     ctx.strokeStyle = "#1b1915";
-    ctx.lineWidth = 0.5;
+    ctx.lineWidth = 1;
     ctx.strokeRect(sx - halfW, y, halfW * 2, TAG_H);
     ctx.fillStyle = this.tagColor(a.id);
-    ctx.fillText(a.name, sx, y + TAG_H - 3);
+    ctx.fillText(a.name, sx, y + TAG_H - 6);
   }
 
   // ---- camera -------------------------------------------------------------

@@ -18,12 +18,17 @@ export interface JoinPayload {
   handle?: string;
   /** the human account behind the agent — accepted by POST /api/agent/join */
   owner?: { name: string; handle: string };
+  /** owner wallet, EVM 0x + 40 hex — recorded on the agent record */
+  wallet?: string;
 }
 
 export interface JoinResult {
   agentId: string;
   token: string;
   resident: Resident;
+  owner?: { name: string; handle: string };
+  /** owner wallet echoed back when one was sent (EVM 0x + 40 hex) */
+  wallet?: string;
 }
 
 export interface PerceiveNearby {

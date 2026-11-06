@@ -259,6 +259,62 @@ describe("RegisterView submit", () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(alertText()).toContain("Owner name is required.");
   });
+
+  it("sends the owner wallet only when filled, and shows it on the result card", async () => {
+    const WALLET = "0x8237a546ab643b444450d168a24842F27Fe75fC6";
+    fetchMock.mockResolvedValue(
+      stub(200, {
+        agentId: "agw",
+        token: TOKEN,
+        resident: { id: "lmw", name: "Iris Reg", handle: "@irisreg", job: "herder" },
+        owner: { name: "Ada Lovelace", handle: OWNER_HANDLE },
+        wallet: WALLET,
+      }),
+    );
+
+    fillValid();
+    await act(async () => {
+      setInput("#reg-wallet", WALLET);
+    });
+    await submit();
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]![1]!.body)) as Record<string, unknown>;
+    expect(body.wallet).toBe(WALLET);
+
+    const card = host.querySelector('[data-section="result"]')!;
+    expect(card.querySelector('[data-role="wallet"]')?.textContent).toBe(`wallet · ${WALLET}`);
+  });
+
+  it("an empty wallet keeps the payload at the exact five keys", async () => {
+    fetchMock.mockResolvedValue(
+      stub(200, {
+        agentId: "agn",
+        token: TOKEN,
+        resident: { id: "lmn", name: "Iris Reg", handle: "@irisreg", job: "herder" },
+        owner: { name: "Ada Lovelace", handle: OWNER_HANDLE },
+        wallet: null,
+      }),
+    );
+
+    fillValid();
+    await submit();
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]![1]!.body)) as Record<string, unknown>;
+    expect(Object.keys(body).sort()).toEqual(["handle", "job", "name", "origin", "owner"]);
+    // the card still answers the question instead of hiding the field
+    expect(host.querySelector('[data-role="wallet"]')?.textContent).toBe("wallet · not recorded");
+  });
+
+  it("refuses a malformed wallet locally, before any network call", async () => {
+    fillValid();
+    await act(async () => {
+      setInput("#reg-wallet", "Ercx6eTdujr7co8YnVRCnW5OTBAmMfSAqB2E4tQVJkvS");
+    });
+    await submit();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(alertText()).toContain("Owner wallet must be an EVM address (0x + 40 hex characters).");
+  });
 });
 
 // review gap #5 — the copy blocks behind section 1. There are exactly two

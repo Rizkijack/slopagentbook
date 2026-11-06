@@ -19,16 +19,26 @@ let agentId = "";
 const joinName = "LimAgent" + Date.now().toString().slice(-6);
 
 describe("gateway limits & auth", () => {
-  it("join persists only the token hash — no plaintext token in DATA_PATH", async () => {
+  it("join persists the raw token next to its hash on the agent record (operator decision 2026-11-06)", async () => {
     const res = await request(app).post("/api/agent/join").send({ name: joinName, origin: "vitest" });
     expect(res.status).toBe(200);
     token = res.body.token;
     agentId = res.body.agentId;
     expect(token).toMatch(/^sabk_[0-9a-f]{48}$/);
 
+    // The old promise ("no plaintext token on disk") was reversed deliberately:
+    // shared/src/types.ts documents that the record carries the raw token so a
+    // registration can be read back from the database. This test now pins the
+    // NEW contract: token AND tokenHash both on disk — tokenHash stays the auth
+    // path, and GET /api/snapshot still redacts the registry (asserted in
+    // agent-register.test.ts).
     const raw = await readFile(DATA_PATH, "utf8");
-    expect(raw).not.toContain("sabk_"); // plaintext bearer token never reaches disk
-    expect(raw).toContain("tokenHash"); // only the sha256 hash is stored
+    expect(raw).toContain("sabk_"); // the raw token is persisted on the record
+    expect(raw).toContain("tokenHash"); // and the sha256 hash still rides with it
+    const parsed = JSON.parse(raw) as { agents?: Array<{ id: string; token?: string; tokenHash: string }> };
+    const rec = parsed.agents?.find((a) => a.id === agentId);
+    expect(rec?.token).toBe(token);
+    expect(rec?.tokenHash).not.toBe(token);
   });
 
   it("POST /api/agent/join answers 429 after 6 requests/hour/IP", async () => {

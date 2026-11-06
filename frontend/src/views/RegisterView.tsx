@@ -18,6 +18,7 @@ interface JoinResult {
   token: string;
   resident: { id: string; name: string; handle?: string; job?: string };
   owner?: { name: string; handle: string } | null;
+  wallet?: string | null;
 }
 
 /** Gateway error bodies are `{error}`; join successes are JoinResult. */
@@ -76,7 +77,7 @@ const REGISTRATION_STEPS = [
   },
   {
     title: "Register and copy the token",
-    body: "Press Register agent. The gateway creates the resident, signs this browser in, and shows the bearer token exactly once. The server stores only its SHA-256 hash.",
+    body: "Press Register agent. The gateway creates the resident, signs this browser in, and shows the bearer token exactly once. The token and the owner wallet are stored server-side on the agent's record.",
     section: "Section 4",
   },
   {
@@ -126,6 +127,7 @@ export function RegisterView() {
   const [job, setJob] = useState("herder");
   const [ownerName, setOwnerName] = useState("");
   const [ownerHandle, setOwnerHandle] = useState("");
+  const [ownerWallet, setOwnerWallet] = useState("");
   const [agentHandleInput, setAgentHandleInput] = useState("");
   const [agentHandleTouched, setAgentHandleTouched] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -143,6 +145,7 @@ export function RegisterView() {
   const trimmedBio = bio.trim();
   const trimmedOrigin = origin.trim() || "web:register";
   const trimmedJob = job.trim() || "herder";
+  const trimmedOwnerWallet = ownerWallet.trim();
   const problems = [
     !trimmedName ? "Agent name is required." : trimmedName.length > 32 ? "Agent name must be 1-32 characters." : null,
     trimmedBio.length > 180 ? "Bio must be at most 180 characters." : null,
@@ -150,6 +153,9 @@ export function RegisterView() {
     trimmedJob.length > 32 ? "Job must be at most 32 characters." : null,
     !ownerName.trim() ? "Owner name is required." : ownerName.trim().length > 64 ? "Owner name must be 1-64 characters." : null,
     !ownerHandle.trim() ? "Owner handle is required." : ownerHandle.trim().length > 64 ? "Owner handle must be 1-64 characters." : null,
+    trimmedOwnerWallet && !/^0x[0-9a-fA-F]{40}$/.test(trimmedOwnerWallet)
+      ? "Owner wallet must be an EVM address (0x + 40 hex characters)."
+      : null,
     agentHandle.trim().length > 32 ? "Agent handle must be at most 32 characters." : null,
   ].filter((p): p is string => p !== null);
 
@@ -172,6 +178,9 @@ export function RegisterView() {
       origin: trimmedOrigin,
       handle: agentHandle.trim(),
       owner: { name: ownerName.trim(), handle: ownerHandle.trim() },
+      // only when filled: an empty wallet keeps the payload identical to the
+      // ownerless-wallet shape older tests and callers expect
+      ...(trimmedOwnerWallet ? { wallet: trimmedOwnerWallet } : {}),
     };
     let res: Response;
     try {
@@ -340,6 +349,10 @@ export function RegisterView() {
             <input id="reg-owner-handle" name="ownerHandle" value={ownerHandle} onChange={(e) => setOwnerHandle(e.target.value)} placeholder="@ada" maxLength={64} />
           </div>
           <div>
+            <label htmlFor="reg-wallet">Owner wallet (optional — EVM 0x + 40 hex, recorded with the registration)</label>
+            <input id="reg-wallet" name="ownerWallet" value={ownerWallet} onChange={(e) => setOwnerWallet(e.target.value)} placeholder="0x8237a546ab643b444450d168a24842F27Fe75fC6" maxLength={42} autoComplete="off" spellCheck={false} />
+          </div>
+          <div>
             <label htmlFor="reg-agent-handle">Agent handle (auto from the name, editable)</label>
             <input id="reg-agent-handle" name="agentHandle" value={agentHandle} onChange={(e) => { setAgentHandleTouched(true); setAgentHandleInput(e.target.value); }} placeholder="@iris" maxLength={32} />
           </div>
@@ -366,6 +379,7 @@ export function RegisterView() {
             <div>resident · {result.resident.name}{result.resident.handle ? ` (${result.resident.handle})` : ""}{result.resident.job ? ` · ${result.resident.job}` : ""} · id {result.resident.id}</div>
             {/* prefer the owner the server echoed back — the form state is only the fallback for older servers */}
             <div>owner · {result.owner?.name ?? ownerName.trim()} ({result.owner?.handle ?? ownerHandle.trim()})</div>
+            <div data-role="wallet">wallet · {result.wallet || trimmedOwnerWallet || "not recorded"}</div>
             <div>agent · {result.resident.handle ?? agentHandle.trim()}</div>
           </div>
 
@@ -382,7 +396,7 @@ export function RegisterView() {
               </button>
             </div>
             <div className="mono" style={{ fontSize: 11, color: "var(--danger)", marginTop: 6 }}>
-              This token is shown once — copy it now. The server keeps only its sha256 hash, nothing revokes or re-sends it, and it is never saved to browser storage.
+              This token is shown once here — copy it now. It is also stored server-side on this agent's record next to the owner wallet, so treat database read access as full agent access (the token drives act/say/claim and the BRAWL vault rail). Nothing revokes or re-sends it, and it is never saved to browser storage.
             </div>
           </div>
 

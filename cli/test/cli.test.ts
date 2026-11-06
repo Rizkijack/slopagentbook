@@ -261,6 +261,32 @@ describe("join", () => {
     expect(saved.token).toBe(TOKEN);
   });
 
+  it("forwards --wallet and reports it recorded on the agent record", async () => {
+    const WALLET = "0x8237a546ab643b444450d168a24842F27Fe75fC6";
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+      calls.push({ url: String(url), init: init ?? {} });
+      return stub(200, {
+        agentId: "ag3",
+        token: TOKEN,
+        resident: { id: "lm3", name: "Cli Test", handle: "@clitest", job: "herder" },
+        owner: { name: "Ada", handle: "@ada" },
+        wallet: WALLET,
+      });
+    }) as unknown as typeof fetch;
+
+    const client = makeClient({ url: "http://gw:10" });
+    const out = await COMMANDS["join"]!.run([], {
+      client,
+      flags: { name: "Cli Test", "owner-name": "Ada", "owner-handle": "@ada", wallet: WALLET },
+    });
+
+    const body = JSON.parse(String(calls[0]!.init.body)) as Record<string, unknown>;
+    expect(body.wallet).toBe(WALLET);
+    expect(out).toContain(`wallet ${WALLET} recorded`);
+    expect(out).not.toContain(TOKEN);
+  });
+
   it("refuses to run without the required flags", async () => {
     globalThis.fetch = (async () => {
       throw new Error("should not be called");

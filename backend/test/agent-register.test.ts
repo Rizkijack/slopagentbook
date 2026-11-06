@@ -36,6 +36,8 @@ const IP_HANDLE = "198.51.100.14";
 const IP_RATE = "198.51.100.15";
 const IP_DUP = "198.51.100.16";
 const IP_CTRL = "198.51.100.17";
+const IP_WALLET = "198.51.100.18";
+const IP_BAD_WALLET = "198.51.100.19";
 
 let seq = 0;
 /** Unique agent name per call — well under the 32-char gateway limit. */
@@ -116,16 +118,81 @@ describe("agent registration (POST /api/agent/join with owner)", () => {
     expect(res.status).toBe(200);
     expect(res.body.token).toMatch(/^sabk_[0-9a-f]{48}$/);
     expect(res.body.owner).toBeNull(); // gateway answers `joined.owner ?? null`
+    expect(res.body.wallet).toBeNull(); // same echo rule for the wallet
 
     // `world.agents[0]` belongs to the owner-bearing join above, so the
     // backward-compatible claim is asserted on THIS join's own record.
     const rec = world.agents!.find((a) => a.id === res.body.agentId)!;
     expect(rec).toBeTruthy();
     expect(rec.owner).toBeUndefined();
+    expect(rec.wallet).toBeUndefined();
 
     const me = await request(app).get("/api/agent/me").set("Authorization", `Bearer ${res.body.token}`);
     expect(me.status).toBe(200);
     expect(me.body.owner).toBeNull();
+  });
+
+  // operator decision 2026-11-06: the raw token AND the owner wallet are stored
+  // on the agent record, keyed to the wallet the registration came from.
+  it("persists the raw token and the owner wallet on the agent record, keyed together", async () => {
+    // NOT the treasury address: that one legitimately rides the snapshot's
+    // config, which would confound the redaction assertion below.
+    const WALLET = "0x11f0aa5ce4e5fa432a35b2a1b6b7c8d9e0f1a2b3";
+    const res = await request(app)
+      .post("/api/agent/join")
+      .set("X-Forwarded-For", IP_WALLET)
+      .send({
+        name: uname("F"),
+        origin: "test:register",
+        owner: { name: OWNER_NAME, handle: OWNER_HANDLE },
+        wallet: WALLET,
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.token).toMatch(/^sabk_[0-9a-f]{48}$/);
+    expect(res.body.wallet).toBe(WALLET); // echoed like owner, so the card shows what got persisted
+
+    const rec = world.agents!.find((a) => a.id === res.body.agentId)!;
+    expect(rec.wallet).toBe(WALLET);
+    // the raw token lives on the record; the hash stays the auth path
+    expect(rec.token).toBe(res.body.token);
+    expect(rec.tokenHash).not.toBe(res.body.token);
+    expect(rec.tokenHash).toMatch(/^[0-9a-f]{64}$/);
+
+    // the persisted snapshot still redacts the registry: neither the token nor
+    // the wallet may leak through GET /api/snapshot
+    const snap = await request(app).get("/api/snapshot");
+    expect(snap.status).toBe(200);
+    const snapText = JSON.stringify(snap.body);
+    expect(snapText).not.toContain(res.body.token);
+    expect(snapText).not.toContain(WALLET);
+    expect(snapText).not.toContain("tokenHash");
+  });
+
+  it("an invalid wallet answers 400 before the world is touched", async () => {
+    const herdBefore = world.herd.length;
+    const agentsBefore = world.agents!.length;
+
+    const cases: Array<{ label: string; wallet: string }> = [
+      { label: "no 0x prefix", wallet: "8237a546ab643b444450d168a24842F27Fe75fC6" },
+      { label: "too short", wallet: "0x8237" },
+      { label: "39 hex chars", wallet: "0x" + "a".repeat(39) },
+      { label: "41 hex chars", wallet: "0x" + "a".repeat(41) },
+      { label: "non-hex character", wallet: "0x8237a546ab643b444450d168a24842F27Fe75fG6" },
+      { label: "base58 solana-looking string", wallet: "Ercx6eTdujr7co8YnVRCnW5OTBAmMfSAqB2E4tQVJkvS" },
+    ];
+    for (const c of cases) {
+      const res = await request(app)
+        .post("/api/agent/join")
+        .set("X-Forwarded-For", IP_BAD_WALLET)
+        .send({ name: uname("G"), origin: "test:register", wallet: c.wallet });
+      expect(res.status, c.label).toBe(400);
+      expect(JSON.stringify(res.body), c.label).toContain("wallet must be an EVM address");
+    }
+
+    // validation runs before any mutation: neither the herd nor the registry moved
+    expect(world.herd.length).toBe(herdBefore);
+    expect(world.agents!.length).toBe(agentsBefore);
   });
 
   it("an invalid handle answers 400 (too long, control chars)", async () => {
