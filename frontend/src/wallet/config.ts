@@ -36,9 +36,11 @@ function appKitConfig(): Config {
     networks: [townChain],
     projectId,
     metadata,
-    // A wallet picker, not a login screen: email, socials, swaps, onramp,
-    // history and analytics are off, so the modal lists wallets and nothing
-    // else. `allWallets` is the full Reown/WalletConnect explorer list.
+    // A wallet picker, not a login screen. Reown's remote project config can
+    // re-enable email/socials regardless of the local `email`/`socials: false`
+    // flags, so those flags are not what pins the modal down: the connect order
+    // is. One method — wallets — is the only screen AppKit may render.
+    // `allWallets` is the full Reown/WalletConnect explorer list.
     features: {
       analytics: false,
       email: false,
@@ -49,6 +51,7 @@ function appKitConfig(): Config {
       receive: false,
       send: false,
       allWallets: true,
+      connectMethodsOrder: ["wallet"],
     },
     // EIP-6963 is what puts an installed browser wallet at the top of the modal
     // ("Installed"); enableInjected covers pre-6963 `window.ethereum` wallets.
