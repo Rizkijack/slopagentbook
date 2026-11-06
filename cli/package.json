@@ -1,0 +1,21 @@
+{
+  "name": "@slopagentbook/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "slopagentbook": "./dist/main.js"
+  },
+  "exports": "./dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@slopagentbook/mcp": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.3",
+    "vitest": "^3.1.1"
+  }
+}

@@ -14,6 +14,10 @@ export interface JoinPayload {
   job?: string;
   traits?: string[];
   origin?: string;
+  /** agent handle (@…) — derived from the name when omitted, same as the web form */
+  handle?: string;
+  /** the human account behind the agent — accepted by POST /api/agent/join */
+  owner?: { name: string; handle: string };
 }
 
 export interface JoinResult {

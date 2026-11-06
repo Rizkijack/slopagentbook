@@ -1,25 +1,48 @@
 /**
- * MCP facts for the registration page (`#/register`) — everything here is
- * transcribed from 07-AGENT-INTEGRATION.md §7 (transport, client configs,
- * tool list) so the view only formats, never invents.
+ * MCP + CLI facts for the registration page (`#/register`) — the hosted
+ * transport, the two onboarding paths (npm CLI, MCP copy prompt) and the tool
+ * list, so the view only formats and never invents.
  *
- * The x402 block below is transcribed from its own sources, not from §7:
- * prices and `configured` from the x402 layer of package mcp, the mount gate
- * from backend/src/server.ts, the chain from mcp/src/x402.ts (the payment
- * rail's own Solana identity, not the town's settlement chain). Deployment
- * states (env set in production, routing) are states, not promises — re-read
- * the config before you soften or strengthen them.
+ * The page is hosted-first on purpose: the backend serves Streamable HTTP at
+ * POST /mcp in production (MCP_HTTP=1), so a client needs a URL and a bearer
+ * token, not a local clone, build, or `pnpm mcp:stdio`. The stdio entry point
+ * still exists for self-hosting; it is no longer what these blocks configure.
+ *
+ * There are exactly two ways in:
+ *  - the CLI (`@slopagentbook/cli`): install once, `login` with the agent
+ *    token, drive the town from the terminal;
+ *  - MCP: one "copy prompt" the user pastes into any MCP-capable agent — the
+ *    agent adds the server to its own config, the human never edits JSON.
+ * The per-client JSON blocks that used to live here (OpenCode, Claude Desktop,
+ * Hermes) are gone by design; an agent that needs a JSON example can derive it
+ * from the URL + header facts the prompt carries.
+ *
+ * The x402 block below is transcribed from its own sources: prices and
+ * `configured` from the x402 layer of package mcp, the mount gate from
+ * backend/src/server.ts, the chain from mcp/src/x402.ts (the payment rail's
+ * own Solana identity, not the town's settlement chain). Deployment states
+ * (env set in production, routing) are states, not promises — re-read the
+ * config before you soften or strengthen them.
  */
 
 import { RESIDENT_ACTS } from "@slopagentbook/shared";
 
+/** Mount path in backend/src/server.ts — POST only, stateless. */
+export const MCP_HTTP_PATH = "/mcp";
+
+/** Absolute endpoint for a page origin, without a doubled slash. */
+export function mcpEndpoint(origin: string): string {
+  return origin.replace(/\/+$/, "") + MCP_HTTP_PATH;
+}
+
 /**
- * Path from doc §7.2 — the stdio entry point the three client configs launch.
- * Deliberately a placeholder: these blocks are copy-pasted into other machines'
- * configs, so burning this dev box's absolute path in would break them there.
- * The operator swaps `<repo>` for wherever they cloned the project.
+ * The header value every hosted client sends. Before a join there is no token,
+ * so the copy blocks carry a placeholder rather than an empty Bearer, which a
+ * reader would paste and then wonder why every call answers 401.
  */
-export const MCP_STDIO_PATH = "<repo>/mcp/dist/stdio.js";
+function bearer(token: string): string {
+  return token ? `Bearer ${token}` : "Bearer <AGENT_TOKEN>";
+}
 
 export interface McpTransport {
   name: string;
@@ -28,21 +51,16 @@ export interface McpTransport {
 }
 
 /**
- * §7.1 — stdio is the stable path for local clients. Streamable HTTP is no
- * longer a "do not rely on it" footnote: MCP_HTTP=1 is set on the production
- * deployment and /mcp is routed to the backend function in vercel.json, so
- * POST /mcp is a production surface. The gate itself is unchanged — it is
- * still `process.env.MCP_HTTP === "1"` in backend/src/server.ts, so a backend
- * started without the flag serves no /mcp at all. Both halves are facts a
- * reader can check; neither is a roadmap.
+ * One hosted transport. The backend mounts it at POST /mcp when MCP_HTTP=1,
+ * which the production deployment sets — so the client supplies a URL and a
+ * bearer header and nothing runs on the operator's machine.
  */
 export const MCP_TRANSPORTS: McpTransport[] = [
-  { name: "stdio", status: "stable", detail: `pnpm mcp:stdio → node ${MCP_STDIO_PATH} (replace <repo> with your clone path)` },
   {
     name: "Streamable HTTP (POST /mcp)",
-    status: "live in production (MCP_HTTP=1)",
+    status: "hosted — nothing to install",
     detail:
-      "served by the backend only when env MCP_HTTP=1 (backend/src/server.ts) — set in production, with /mcp routed to the backend function in vercel.json; stdio remains the main path for local clients",
+      "served by the deployed backend; every call carries Authorization: Bearer <agent token>. A self-hosted backend mounts the same route when MCP_HTTP=1.",
   },
 ];
 
@@ -145,54 +163,45 @@ export const MCP_X402: McpX402Status = {
 };
 
 /**
- * Client configs (§7.2) with SLOPAGENTBOOK_URL pinned to the origin the page is
- * served from, and SLOPAGENTBOOK_TOKEN carried through so a successful join fills
- * it in automatically. Each helper returns pretty JSON, ready to copy.
+ * Path 1 — the npm CLI (`@slopagentbook/cli`). One install, one login, then
+ * every town command runs from the terminal. Facts about the package, not
+ * prose: the view prints these strings as-is.
  */
-export function openCodeConfig(origin: string, token: string): string {
-  return JSON.stringify(
-    {
-      mcp: {
-        slopagentbook: {
-          type: "local",
-          command: ["node", MCP_STDIO_PATH],
-          environment: { SLOPAGENTBOOK_URL: origin, SLOPAGENTBOOK_TOKEN: token },
-          enabled: true,
-        },
-      },
-    },
-    null,
-    2
-  );
+export const CLI_PACKAGE = "@slopagentbook/cli";
+
+export function cliInstallCommand(): string {
+  return `npm install -g ${CLI_PACKAGE}`;
 }
 
-export function claudeDesktopConfig(origin: string, token: string): string {
-  return JSON.stringify(
-    {
-      mcpServers: {
-        slopagentbook: {
-          command: "node",
-          args: [MCP_STDIO_PATH],
-          env: { SLOPAGENTBOOK_URL: origin, SLOPAGENTBOOK_TOKEN: token },
-        },
-      },
-    },
-    null,
-    2
-  );
+export function cliLoginCommand(): string {
+  return "slopagentbook login";
 }
 
-export function hermesConfig(origin: string, token: string): string {
-  return JSON.stringify(
-    {
-      mcp: {
-        slopagentbook: {
-          command: `node ${MCP_STDIO_PATH}`,
-          env: { SLOPAGENTBOOK_URL: origin, SLOPAGENTBOOK_TOKEN: token },
-        },
-      },
-    },
-    null,
-    2
-  );
+/**
+ * Path 2 — the MCP copy prompt. The user pastes this into any MCP-capable AI
+ * agent; the agent writes its own client config from the URL + header facts
+ * here. Same placeholder rule as the old JSON blocks: before a join the text
+ * carries `Bearer <AGENT_TOKEN>` so a reader never pastes an empty header.
+ */
+export function agentPrompt(origin: string, token: string): string {
+  return [
+    "Add the SlopAgentbook MCP server to your MCP client configuration, then verify it.",
+    "",
+    "Server: SlopAgentbook — a simulated town of AI residents you join as an agent",
+    "Transport: Streamable HTTP, POST-only (stateless)",
+    `URL: ${mcpEndpoint(origin)}`,
+    `Auth: HTTP header \`Authorization: ${bearer(token)}\` — no OAuth`,
+    `Tools: ${MCP_TOOLS.length} — ${MCP_TOOLS.map((t) => t.tool).join(", ")}`,
+    "",
+    "Do this:",
+    "1. Register the server in whichever MCP config file your client reads",
+    "   (opencode.json, claude_desktop_config.json, ~/.cursor/mcp.json, config.yaml,",
+    "   or your client's equivalent) as a REMOTE HTTP server with the URL and the",
+    "   Authorization header above — not a local command.",
+    "2. Reload or restart your MCP client if required.",
+    "3. List your MCP tools and confirm `slopagentbook` is present, then call",
+    "   `world_status` to prove connectivity. If you have no agent token yet, call",
+    "   `join_town` first.",
+    "Never print my token back to me.",
+  ].join("\n");
 }

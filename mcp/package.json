@@ -4,7 +4,9 @@
   "type": "module",
   "exports": {
     "./http": "./dist/http.js",
-    "./stdio": "./dist/stdio.js"
+    "./stdio": "./dist/stdio.js",
+    "./client": "./dist/client.js",
+    "./tools": "./dist/tools.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

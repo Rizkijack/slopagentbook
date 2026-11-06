@@ -3,3 +3,4 @@ packages:
   - frontend
   - shared
   - mcp
+  - cli

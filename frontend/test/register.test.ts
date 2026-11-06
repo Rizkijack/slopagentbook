@@ -4,11 +4,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { act } from "react-dom/test-utils";
 import { RegisterView } from "../src/views/RegisterView.js";
 import {
-  MCP_STDIO_PATH,
   MCP_TOOLS,
-  openCodeConfig,
-  claudeDesktopConfig,
-  hermesConfig,
+  mcpEndpoint,
+  agentPrompt,
+  cliInstallCommand,
+  cliLoginCommand,
 } from "../src/views/mcpInfo.js";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -109,7 +109,7 @@ describe("RegisterView layout & labels", () => {
     for (const step of steps) expect(text, step).toContain(step);
 
     const english = [
-      "Connect an AI client (MCP)",
+      "Connect an AI client",
       "Agent identity",
       "Town job",
       "Owner & agent account",
@@ -261,74 +261,71 @@ describe("RegisterView submit", () => {
   });
 });
 
-// review gap #5 — the MCP config helpers behind the section-1 copy buttons.
-// These blocks get pasted into OTHER machines' configs, so each must be valid
-// JSON, pin the given origin, carry the token when set, and never bake this dev
-// box's absolute path into a copy-ready block.
-type Json = Record<string, unknown>;
+// review gap #5 — the copy blocks behind section 1. There are exactly two
+// onboarding paths now: the npm CLI (install + login strings) and the MCP
+// copy prompt the user pastes into their AI agent, which then writes its own
+// client config. Everything here must point at the hosted /mcp endpoint,
+// carry the token as a bearer header (or the <AGENT_TOKEN> placeholder), and
+// never bake a local path or a stdio command into a copy block.
 
-function dig(json: unknown, ...path: string[]): unknown {
-  let cur: unknown = json;
-  for (const key of path) {
-    if (typeof cur !== "object" || cur === null) return undefined;
-    cur = (cur as Record<string, unknown>)[key];
-  }
-  return cur;
-}
+const ORIGIN = "https://hermes.example:8787";
 
-interface McpCase {
-  label: string;
-  build: (origin: string, token: string) => string;
-  envPath: string[];
-}
+describe("agentPrompt (the MCP copy prompt)", () => {
+  const prompt = agentPrompt(ORIGIN, TOKEN);
 
-const MCP_CASES: McpCase[] = [
-  { label: "openCodeConfig", build: openCodeConfig, envPath: ["mcp", "slopagentbook", "environment"] },
-  { label: "claudeDesktopConfig", build: claudeDesktopConfig, envPath: ["mcpServers", "slopagentbook", "env"] },
-  { label: "hermesConfig", build: hermesConfig, envPath: ["mcp", "slopagentbook", "env"] },
-];
+  it("points at the hosted /mcp endpoint", () => {
+    expect(prompt).toContain(`${ORIGIN}/mcp`);
+    // no clone, no build, no local entry point — the agent writes its own config
+    expect(prompt).not.toContain("mcp/dist/stdio.js");
+    expect(prompt).not.toContain("pnpm mcp:stdio");
+    expect(prompt).not.toContain("<repo>");
+  });
 
-/** 07-AGENT-INTEGRATION.md §7.3 + the x402 pair — the fourteen tools the MCP server exposes. */
-const EXPECTED_MCP_TOOLS = [
-  "join_town", "world_status", "world_snapshot", "feed_recent", "who_is",
-  "act", "say", "quests_list", "quest_claim", "events_since",
-  "chat_send", "chat_history",
-  "quest_create", "quest_join",
-];
+  it("never bakes this dev box's absolute path into the prompt", () => {
+    expect(prompt).not.toContain("G:/PROJECT");
+    expect(prompt).not.toContain("G:\\PROJECT");
+  });
 
-describe("MCP config helpers (mcpInfo)", () => {
-  const ORIGIN = "https://hermes.example:8787";
+  it("carries the token as a bearer header, and the placeholder before a join", () => {
+    expect(prompt).toContain(`Authorization: Bearer ${TOKEN}`);
+    expect(agentPrompt(ORIGIN, "")).toContain("Authorization: Bearer <AGENT_TOKEN>");
+  });
 
-  for (const c of MCP_CASES) {
-    describe(c.label, () => {
-      it("returns valid JSON with SLOPAGENTBOOK_URL pinned to the given origin", () => {
-        const out = c.build(ORIGIN, TOKEN);
-        const json = JSON.parse(out) as Json; // throws if the helper emits non-JSON
-        expect(typeof json).toBe("object");
-        const env = (dig(json, ...c.envPath) ?? {}) as Record<string, string>;
-        expect(env.SLOPAGENTBOOK_URL).toBe(ORIGIN);
-        expect(out).toContain("SLOPAGENTBOOK_URL");
-      });
+  it("instructs the agent to add the server itself and verify with world_status", () => {
+    expect(prompt).toContain("Add the SlopAgentbook MCP server");
+    expect(prompt).toContain("Register the server");
+    expect(prompt).toContain("REMOTE HTTP server");
+    expect(prompt).toContain("world_status");
+    expect(prompt).toContain("join_town");
+    expect(prompt).toContain("Never print my token");
+  });
 
-      it("embeds SLOPAGENTBOOK_TOKEN when a token is set, empty string when not", () => {
-        const withToken = (dig(JSON.parse(c.build(ORIGIN, TOKEN)) as Json, ...c.envPath) ?? {}) as Record<string, string>;
-        expect(withToken.SLOPAGENTBOOK_TOKEN).toBe(TOKEN);
+  it("names all the MCP tools it advertises", () => {
+    for (const tool of MCP_TOOLS.map((t) => t.tool)) expect(prompt).toContain(tool);
+  });
+});
 
-        const without = (dig(JSON.parse(c.build(ORIGIN, "")) as Json, ...c.envPath) ?? {}) as Record<string, string>;
-        expect(without.SLOPAGENTBOOK_TOKEN).toBe("");
-      });
+describe("CLI copy blocks (mcpInfo)", () => {
+  /** 07-AGENT-INTEGRATION.md §7.3 + the x402 pair — the fourteen tools the MCP server exposes. */
+  const EXPECTED_MCP_TOOLS = [
+    "join_town", "world_status", "world_snapshot", "feed_recent", "who_is",
+    "act", "say", "quests_list", "quest_claim", "events_since",
+    "chat_send", "chat_history",
+    "quest_create", "quest_join",
+  ];
 
-      it("keeps the stdio path a <repo> placeholder — no machine path baked in", () => {
-        const out = c.build(ORIGIN, TOKEN);
-        expect(MCP_STDIO_PATH).toBe("<repo>/mcp/dist/stdio.js");
-        expect(out).toContain(MCP_STDIO_PATH);
-        expect(out).toContain("<repo>");
-        // regression: this dev box's absolute path must never reach a copy block
-        expect(out).not.toContain("G:/PROJECT");
-        expect(out).not.toContain("G:\\PROJECT");
-      });
-    });
-  }
+  it("install line installs the scoped package globally", () => {
+    expect(cliInstallCommand()).toBe("npm install -g @slopagentbook/cli");
+  });
+
+  it("login command is the CLI's own verb", () => {
+    expect(cliLoginCommand()).toBe("slopagentbook login");
+  });
+
+  it("mcpEndpoint joins the path without doubling a trailing slash", () => {
+    expect(mcpEndpoint("https://hermes.example:8787")).toBe("https://hermes.example:8787/mcp");
+    expect(mcpEndpoint("https://hermes.example:8787/")).toBe("https://hermes.example:8787/mcp");
+  });
 
   it("MCP_TOOLS lists exactly the fourteen tools with unique names", () => {
     const names = MCP_TOOLS.map((t) => t.tool);
