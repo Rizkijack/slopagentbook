@@ -1,4 +1,4 @@
-import { defaultConfig, HERD_CAP_PREVIOUS } from "@slopagentbook/shared";
+import { defaultConfig, HERD_CAP_PREVIOUS, QUEST_BOARD_CAP } from "@slopagentbook/shared";
 
 // Postgres backing for the town snapshot (Vercel: /tmp is ephemeral).
 //
@@ -348,7 +348,9 @@ function newerQuest(storedRow: Rec, mineRow: Rec): Rec {
 
 /**
  * The quest array as it must be stored: union keyed by quest id, the monotonic
- * rule above deciding each id, the board capped at the length the town keeps.
+ * rule above deciding each id, the board capped at `QUEST_BOARD_CAP` — the live
+ * target plus recent history, shared with the backend refill so the row and the
+ * board cannot disagree about how many slots exist.
  * Exported because the read-through refresh (`refreshQuestsFromStore`) applies
  * the SAME rule to what the row holds before serving the board — a GET must be
  * able to RAISE its view to the row's, not echo its own stale copy back.
@@ -356,7 +358,7 @@ function newerQuest(storedRow: Rec, mineRow: Rec): Rec {
 export function mergeQuests(stored: unknown, mine: unknown): Rec[] {
   return unionByRule(asArr(stored), asArr(mine), (r, i) => keyOf(r, `quest${i}`), newerQuest)
     .sort(byNumber("createdAt", -1))
-    .slice(0, 12);
+    .slice(0, QUEST_BOARD_CAP);
 }
 
 function byNumber(field: string, dir: 1 | -1) {

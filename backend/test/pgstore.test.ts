@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { QUEST_BOARD_CAP } from "@slopagentbook/shared";
 import { ensureSchema, mergeSnapshots, normalizeHerd, pgLoad, pgSave, planRemoval, settleHerdCap } from "../src/pgstore.js";
 
 // pgstore is where the town lost residents: every Vercel instance holds its own
@@ -619,14 +620,14 @@ describe("mergeSnapshots", () => {
 
   it("caps editions, quests and contests at the lengths the town actually keeps", () => {
     const editions = Array.from({ length: 40 }, (_, i) => ({ no: i + 1, headline: `e${i}` }));
-    const quests = Array.from({ length: 30 }, (_, i) => ({ id: `q${i}`, createdAt: i, title: `q${i}` }));
+    const quests = Array.from({ length: 80 }, (_, i) => ({ id: `q${i}`, createdAt: i, title: `q${i}` }));
     const contests = Array.from({ length: 20 }, (_, i) => ({ id: `c${i}`, startsAt: i, title: `c${i}` }));
 
     const merged = mergeSnapshots(snap(), snap({ editions, quests, contests })) as Snap;
     expect((merged.editions as Snap[])).toHaveLength(20);
     expect((merged.editions as Snap[])[0]!.no).toBe(40);
-    expect((merged.quests as Snap[])).toHaveLength(12);
-    expect((merged.quests as Snap[])[0]!.id).toBe("q29");
+    expect((merged.quests as Snap[])).toHaveLength(QUEST_BOARD_CAP);
+    expect((merged.quests as Snap[])[0]!.id).toBe("q79");
     expect((merged.contests as Snap[])).toHaveLength(8);
   });
 

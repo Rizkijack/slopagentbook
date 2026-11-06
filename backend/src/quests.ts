@@ -1,6 +1,8 @@
 import type { TownSnapshot, Quest, QuestType, QuestActionType, QuestRewardInfo } from "@slopagentbook/shared";
-import { QUEST_ACTIONS } from "@slopagentbook/shared";
+import { QUEST_ACTIONS, QUEST_ACTIVE_TARGET, QUEST_BOARD_CAP } from "@slopagentbook/shared";
 import { LOCATIONS } from "./locations.js";
+
+export { QUEST_ACTIVE_TARGET, QUEST_BOARD_CAP };
 
 type Template = Omit<Quest, "id" | "progress" | "status" | "createdAt" | "expiresAt" | "giver" | "giverName" | "completedAt"> & { giver?: string };
 
@@ -1238,24 +1240,6 @@ export function generateQuest(world: TownSnapshot, rng: () => number = Math.rand
   };
 }
 
-/**
- * How many live quests the board holds.
- *
- * The board is the job list residents pick from, so this is a slot count, not a
- * template count: the pool behind it is `TEMPLATES` (110), and every slot draws
- * one template when it opens. 50 is one slot per resident on a fresh town, so a
- * visitor sees the whole herd at work instead of six cards and an empty field.
- */
-export const QUEST_ACTIVE_TARGET = 50;
-
-/**
- * Hard cap on stored rows: the live target plus recent history
- * (completed/claimed/expired). Trimming removes history first — a retired row
- * is the cheapest thing to lose — and only falls back to live rows when a race
- * pushed the live count past the target (see refreshExpiredQuests).
- */
-export const QUEST_BOARD_CAP = 60;
-
 export function createInitialQuests(world: TownSnapshot): Quest[] {
   const rng = () => Math.random();
   // The fresh board is one template per live slot. 50 of 110 means the first
@@ -1571,28 +1555,39 @@ export function refreshExpiredQuests(world: TownSnapshot): void {
     live++;
   }
   // Two cold instances can top up the same short board at once and then merge
-  // their generations, leaving more live quests than there are slots. Generated
-  // quests are appended, so keeping the NEWEST live rows drops the duplicates
-  // (and any stale pre-deploy rows) instead of letting the board drift up; the
-  // next instance that loads the row sees a full board and generates nothing, so
-  // this converges after one save cycle.
+  // their generations, leaving more live quests than there are slots. Drop the
+  // OLDEST live rows by `createdAt`, not by array position: `mergeQuests` sorts
+  // the merged board newest-first, so "first in the array" is the newest after a
+  // store read. The tiebreak on original index keeps the order stable when a
+  // legacy row has no usable timestamp.
   if (live > QUEST_ACTIVE_TARGET) {
-    let excess = live - QUEST_ACTIVE_TARGET;
-    world.quests = world.quests.filter((q) => {
-      if (excess <= 0 || !isLive(q)) return true;
-      excess--;
-      return false;
-    });
+    const createdAt = (q: Quest): number => (typeof q.createdAt === "number" ? q.createdAt : 0);
+    const drop = live - QUEST_ACTIVE_TARGET;
+    const oldest = new Set(
+      world.quests
+        .filter(isLive)
+        .map((q, i) => ({ q, i }))
+        .sort((a, b) => createdAt(a.q) - createdAt(b.q) || a.i - b.i)
+        .slice(0, drop)
+        .map((x) => x.q.id),
+    );
+    world.quests = world.quests.filter((q) => !oldest.has(q.id));
   }
   // History is retired first. A finished row is board record, not work, so it is
   // the cheapest thing to lose when the cap is reached; live rows are only ever
-  // trimmed above, against the slot target.
+  // trimmed above, against the slot target. Same `createdAt` rule — the array
+  // order after a merge is newest-first, not oldest-first.
   if (world.quests.length > QUEST_BOARD_CAP) {
-    let excess = world.quests.length - QUEST_BOARD_CAP;
-    world.quests = world.quests.filter((q) => {
-      if (excess <= 0 || isLive(q)) return true;
-      excess--;
-      return false;
-    });
+    const at = (q: Quest): number => (typeof q.createdAt === "number" ? q.createdAt : 0);
+    const excess = world.quests.length - QUEST_BOARD_CAP;
+    const retired = new Set(
+      world.quests
+        .filter((q) => !isLive(q))
+        .map((q, i) => ({ q, i }))
+        .sort((a, b) => at(a.q) - at(b.q) || a.i - b.i)
+        .slice(0, excess)
+        .map((x) => x.q.id),
+    );
+    world.quests = world.quests.filter((q) => !retired.has(q.id));
   }
 }

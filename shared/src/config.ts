@@ -173,6 +173,29 @@ export const QUEST_ACTIONS = {
 export type QuestActionType = keyof typeof QUEST_ACTIONS;
 
 /**
+ * How many live quests the board holds.
+ *
+ * The board is the job list residents pick from, so this is a slot count, not a
+ * template count: the pool behind it is the template table in the backend, and
+ * every slot draws one template when it opens. Live means `available` or
+ * `active`; completed/claimed/expired rows are history.
+ *
+ * It lives in `shared` because two modules enforce it on opposite sides of the
+ * store: the backend refills and trims the board, and `mergeQuests` need the
+ * same number when it caps what a save may write. Two copies of the number is
+ * exactly how the board returned twelve slots while the refill floor asked for
+ * fifty.
+ */
+export const QUEST_ACTIVE_TARGET = 50;
+
+/**
+ * Hard cap on stored quest rows: the live target plus recent history. Trimming
+ * removes history first — a retired row is board record, not work — and the
+ * merged view is capped here so a race between instances cannot grow the row.
+ */
+export const QUEST_BOARD_CAP = 60;
+
+/**
  * Defaults this field has shipped with, oldest first. Boot reconciliation only
  * rewrites a town still carrying one of these exact values, so a cap set by an
  * operator is never touched. Keep in sync with `defaultConfig.maxHerd`: the
