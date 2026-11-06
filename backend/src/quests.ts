@@ -1238,12 +1238,31 @@ export function generateQuest(world: TownSnapshot, rng: () => number = Math.rand
   };
 }
 
+/**
+ * How many live quests the board holds.
+ *
+ * The board is the job list residents pick from, so this is a slot count, not a
+ * template count: the pool behind it is `TEMPLATES` (110), and every slot draws
+ * one template when it opens. 50 is one slot per resident on a fresh town, so a
+ * visitor sees the whole herd at work instead of six cards and an empty field.
+ */
+export const QUEST_ACTIVE_TARGET = 50;
+
+/**
+ * Hard cap on stored rows: the live target plus recent history
+ * (completed/claimed/expired). Trimming removes history first — a retired row
+ * is the cheapest thing to lose — and only falls back to live rows when a race
+ * pushed the live count past the target (see refreshExpiredQuests).
+ */
+export const QUEST_BOARD_CAP = 60;
+
 export function createInitialQuests(world: TownSnapshot): Quest[] {
   const rng = () => Math.random();
-  // pick 8 diverse quests — the board is a job list, and four rows out of a
-  // hundred-building town is too thin to read as one
+  // The fresh board is one template per live slot. 50 of 110 means the first
+  // board a visitor sees is already varied, not eight rows out of a hundred
+  // buildings.
   const shuffled = [...TEMPLATES].sort(() => rng() - 0.5);
-  const chosen = shuffled.slice(0, 8);
+  const chosen = shuffled.slice(0, Math.min(QUEST_ACTIVE_TARGET, TEMPLATES.length));
   return chosen.map((tpl) => {
     const giver = pick(world.herd, rng);
     const id = "q" + Math.random().toString(36).slice(2, 9);
@@ -1544,13 +1563,36 @@ export function refreshExpiredQuests(world: TownSnapshot): void {
       expiredCount++;
     }
   }
-  // keep at least 6 active/available
-  while (world.quests.filter((q) => q.status === "available" || q.status === "active").length < 6) {
-    const nq = generateQuest(world);
-    world.quests.push(nq);
+  // Top the board back up to its full slot count.
+  const isLive = (q: Quest): boolean => q.status === "available" || q.status === "active";
+  let live = world.quests.filter(isLive).length;
+  while (live < QUEST_ACTIVE_TARGET) {
+    world.quests.push(generateQuest(world));
+    live++;
   }
-  // also cap at 12
-  if (world.quests.length > 12) {
-    world.quests = world.quests.slice(-12);
+  // Two cold instances can top up the same short board at once and then merge
+  // their generations, leaving more live quests than there are slots. Generated
+  // quests are appended, so keeping the NEWEST live rows drops the duplicates
+  // (and any stale pre-deploy rows) instead of letting the board drift up; the
+  // next instance that loads the row sees a full board and generates nothing, so
+  // this converges after one save cycle.
+  if (live > QUEST_ACTIVE_TARGET) {
+    let excess = live - QUEST_ACTIVE_TARGET;
+    world.quests = world.quests.filter((q) => {
+      if (excess <= 0 || !isLive(q)) return true;
+      excess--;
+      return false;
+    });
+  }
+  // History is retired first. A finished row is board record, not work, so it is
+  // the cheapest thing to lose when the cap is reached; live rows are only ever
+  // trimmed above, against the slot target.
+  if (world.quests.length > QUEST_BOARD_CAP) {
+    let excess = world.quests.length - QUEST_BOARD_CAP;
+    world.quests = world.quests.filter((q) => {
+      if (excess <= 0 || isLive(q)) return true;
+      excess--;
+      return false;
+    });
   }
 }

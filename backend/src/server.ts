@@ -9,7 +9,7 @@ import { normalizeHerd, dedupeFactions, planRemoval, applyRemoval, ensureSchema 
 import { databaseTargets, hasDatabase, primaryUrl } from "./pgsql.js";
 import { createInitialWorld, makeResidentFromFork, generateEdition, generateWeatherEvent } from "./world.js";
 import { loadWithRecovery } from "./persist.js";
-import { updateQuestProgress, claimQuest, refreshExpiredQuests, generateQuest, createInitialQuests, questRewardInfo } from "./quests.js";
+import { updateQuestProgress, claimQuest, refreshExpiredQuests, generateQuest, createInitialQuests, questRewardInfo, QUEST_BOARD_CAP } from "./quests.js";
 import { LOCATIONS, LOCATION_BY_ID } from "./locations.js";
 import { spend } from "./spend.js";
 import { createBrain } from "./brain.js";
@@ -957,9 +957,10 @@ app.post("/api/quests/refresh", async (req, res) => {
   const before = world.quests.length;
   refreshExpiredQuests(world);
   await refreshQuestsFromStore(DATA_PATH, world);
-  // also generate one fresh if under 12 — the manual top-up on a board that
-  // refreshExpiredQuests already refills to 6, so 12 is this route's own floor
-  if (world.quests.length < 12) {
+  // also generate one fresh if under the cap — the manual top-up on a board that
+  // refreshExpiredQuests already refills to the live target, so the cap is this
+  // route's own floor
+  if (world.quests.length < QUEST_BOARD_CAP) {
     const nq = generateQuest(world);
     world.quests.push(nq);
     broadcast({ type: "quest", quest: nq });

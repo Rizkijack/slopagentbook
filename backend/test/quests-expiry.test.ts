@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { Quest, TownSnapshot } from "@slopagentbook/shared";
-import { refreshExpiredQuests } from "../src/quests.js";
+import { refreshExpiredQuests, QUEST_ACTIVE_TARGET, QUEST_BOARD_CAP } from "../src/quests.js";
 
 /**
  * 2026-10-31 — expiry used to be a FILTER (the quest left `world.quests`).
@@ -82,6 +82,37 @@ describe("refreshExpiredQuests marks, it does not delete", () => {
     const w = world([quest({ status: "active", expiresAt: 1 })]);
     refreshExpiredQuests(w);
     const statuses = (w.quests as unknown as Quest[]).map((q) => q.status);
-    expect(statuses.filter((s) => s === "available" || s === "active").length).toBeGreaterThanOrEqual(6);
+    expect(statuses.filter((s) => s === "available" || s === "active").length).toBeGreaterThanOrEqual(QUEST_ACTIVE_TARGET);
+  });
+
+  it("a board topped up by two instances converges to the slot target, newest kept", () => {
+    // two cold instances each generated a full board from the same six live
+    // slots; the merge unions them. The extra rows are live, so the history-first
+    // cap cannot remove them — the live trim has to.
+    const live = (n: number) => quest({ id: "q" + n, status: "available", expiresAt: Date.now() + 60_000 });
+    const w = world(Array.from({ length: QUEST_ACTIVE_TARGET + 20 }, (_, i) => live(i)));
+    refreshExpiredQuests(w);
+    const board = w.quests as unknown as Quest[];
+    const lives = board.filter((q) => q.status === "available" || q.status === "active");
+    expect(lives.length).toBe(QUEST_ACTIVE_TARGET);
+    // generated quests are appended, so the NEWEST rows survive
+    expect(board.some((q) => q.id === "q" + (QUEST_ACTIVE_TARGET + 19))).toBe(true);
+    expect(board.some((q) => q.id === "q0")).toBe(false);
+  });
+
+  it("history is trimmed before live rows at the cap", () => {
+    const live = (n: number) => quest({ id: "ql" + n, status: "available", expiresAt: Date.now() + 60_000 });
+    const done = (n: number) => quest({ id: "qd" + n, status: "claimed", expiresAt: 1 });
+    const w = world([
+      ...Array.from({ length: 20 }, (_, i) => done(i)),
+      ...Array.from({ length: QUEST_ACTIVE_TARGET }, (_, i) => live(i)),
+    ]);
+    refreshExpiredQuests(w);
+    const board = w.quests as unknown as Quest[];
+    expect(board.length).toBeLessThanOrEqual(QUEST_BOARD_CAP);
+    expect(board.filter((q) => q.status === "available" || q.status === "active").length).toBe(QUEST_ACTIVE_TARGET);
+    // the oldest finished rows are the ones that went
+    expect(board.some((q) => q.id === "qd0")).toBe(false);
+    expect(board.some((q) => q.id === "qd19")).toBe(true);
   });
 });

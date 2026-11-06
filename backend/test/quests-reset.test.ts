@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import request from "supertest";
 import { readFileSync } from "node:fs";
 import { app, world } from "../src/server.js";
+import { QUEST_ACTIVE_TARGET } from "../src/quests.js";
 
 /**
  * POST /api/quests/reset — the owner-only progress reset.
@@ -59,7 +60,7 @@ describe("POST /api/quests/reset behavior", () => {
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
     expect(res.body.before).toBe(1);
-    expect(res.body.after).toBe(8); // createInitialQuests' fresh board
+    expect(res.body.after).toBe(QUEST_ACTIVE_TARGET); // createInitialQuests' fresh board: one per slot
     expect(res.body.quests.map((q: { id: string }) => q.id)).not.toContain("q-reset-old");
     // every fresh quest starts at the bottom of its lifecycle
     for (const q of res.body.quests as { status: string; progress?: number }[]) {
