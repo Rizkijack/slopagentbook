@@ -456,6 +456,22 @@ describe("ensureSchema", () => {
     // column that the compare-and-swap depends on needs its own statement
     expect(all).toMatch(/ALTER TABLE town_state ADD COLUMN IF NOT EXISTS rev bigint/);
   });
+
+  it("skips the ALTER once rev exists, so boot takes no table lock", async () => {
+    const log: string[] = [];
+    const exec = (strings: TemplateStringsArray) => {
+      const text = strings.join(" ").replace(/\s+/g, " ").trim();
+      log.push(text);
+      const rows = /information_schema\.columns/.test(text) ? [{ present: 1 }] : [];
+      return {
+        then: (onOk: (value: unknown[]) => unknown) => Promise.resolve(rows).then(onOk),
+      } as never;
+    };
+    await ensureSchema(exec as unknown as Parameters<typeof ensureSchema>[0]);
+    const all = log.join(" ");
+    expect(all).toMatch(/information_schema\.columns/);
+    expect(all).not.toMatch(/ALTER TABLE/);
+  });
 });
 
 describe("pgLoad", () => {

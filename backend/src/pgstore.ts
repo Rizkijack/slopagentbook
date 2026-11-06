@@ -90,6 +90,24 @@ export async function ensureSchema(sql: PgQuery): Promise<void> {
   // Monotonic revision for the optimistic save below. `CREATE TABLE IF NOT
   // EXISTS` is a no-op on the row that already exists, so the column has to be
   // added separately; both statements are idempotent.
+  //
+  // Check the catalog before the ALTER. `ADD COLUMN IF NOT EXISTS` still takes
+  // ACCESS EXCLUSIVE even when the column is already present, and this runs on
+  // every serverless cold start: a boot whose request was killed mid-save leaves
+  // its transaction idle-in-transaction on the provider, the next boot's ALTER
+  // queues behind it, the provider's statement timeout cancels the boot, and the
+  // failure repeats until that orphan connection dies. Observed live: three
+  // consecutive 60s cold-start 500s on /api/health for a handler that touches no
+  // database at all, with `canceling statement due to statement timeout` (57014)
+  // pointing at this ALTER. In steady state the column exists, so the boot now
+  // does one catalog read and takes no table lock.
+  const hasRev = await sql`
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = current_schema()
+      AND table_name = 'town_state'
+      AND column_name = 'rev'
+    LIMIT 1`;
+  if (hasRev.length > 0) return;
   await sql`ALTER TABLE town_state ADD COLUMN IF NOT EXISTS rev bigint NOT NULL DEFAULT 0`;
 }
 
