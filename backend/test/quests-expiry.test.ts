@@ -93,11 +93,25 @@ describe("refreshExpiredQuests marks, it does not delete", () => {
     expect(new Set(titles).size).toBe(titles.length);
   });
 
+  it("retires an older available duplicate title and reopens the slot", () => {
+    const w = world([
+      quest({ id: "newer", title: "The Money Round", status: "available", createdAt: 2_000, expiresAt: Date.now() + 60_000 }),
+      quest({ id: "older", title: "The Money Round", status: "available", createdAt: 1_000, expiresAt: Date.now() + 60_000 }),
+    ]);
+    refreshExpiredQuests(w);
+    const board = w.quests as unknown as Quest[];
+    expect(board.find((q) => q.id === "newer")!.status).toBe("available");
+    expect(board.find((q) => q.id === "older")!.status).toBe("expired");
+    const live = board.filter((q) => q.status === "available" || q.status === "active");
+    expect(live).toHaveLength(QUEST_ACTIVE_TARGET);
+    expect(live.filter((q) => q.title === "The Money Round")).toHaveLength(1);
+  });
+
   it("a board topped up by two instances converges to the slot target, newest kept", () => {
     // two cold instances each generated a full board from the same six live
     // slots; the merge unions them. The extra rows are live, so the history-first
     // cap cannot remove them — the live trim has to.
-    const live = (n: number) => quest({ id: "q" + n, status: "available", expiresAt: Date.now() + 60_000 });
+    const live = (n: number) => quest({ id: "q" + n, title: "t" + n, status: "available", expiresAt: Date.now() + 60_000 });
     const w = world(Array.from({ length: QUEST_ACTIVE_TARGET + 20 }, (_, i) => live(i)));
     refreshExpiredQuests(w);
     const board = w.quests as unknown as Quest[];
@@ -109,8 +123,8 @@ describe("refreshExpiredQuests marks, it does not delete", () => {
   });
 
   it("history is trimmed before live rows at the cap", () => {
-    const live = (n: number) => quest({ id: "ql" + n, status: "available", expiresAt: Date.now() + 60_000 });
-    const done = (n: number) => quest({ id: "qd" + n, status: "claimed", expiresAt: 1 });
+    const live = (n: number) => quest({ id: "ql" + n, title: "live" + n, status: "available", expiresAt: Date.now() + 60_000 });
+    const done = (n: number) => quest({ id: "qd" + n, title: "done" + n, status: "claimed", expiresAt: 1 });
     const w = world([
       ...Array.from({ length: 20 }, (_, i) => done(i)),
       ...Array.from({ length: QUEST_ACTIVE_TARGET }, (_, i) => live(i)),

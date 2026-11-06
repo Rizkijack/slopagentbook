@@ -1547,8 +1547,22 @@ export function refreshExpiredQuests(world: TownSnapshot): void {
       expiredCount++;
     }
   }
-  // Top the board back up to its full slot count.
   const isLive = (q: Quest): boolean => q.status === "available" || q.status === "active";
+  // A board generated before draws were title-aware can still hold two live
+  // copies of one template. Retire the older AVAILABLE copy — never an `active`
+  // one, which is someone's progress — and let the refill below reopen the slot
+  // with an unused title. The merged board is newest-first, so the first row seen
+  // for a title is the copy kept.
+  const liveTitles = new Set<string>();
+  for (const q of world.quests) {
+    if (!isLive(q)) continue;
+    if (!liveTitles.has(q.title)) {
+      liveTitles.add(q.title);
+      continue;
+    }
+    if (q.status === "available") q.status = "expired";
+  }
+  // Top the board back up to its full slot count.
   let live = world.quests.filter(isLive).length;
   // One slot per template title while the pool has spare titles. The board is a
   // job list, and two identical "The Money Round" cards side by side read as a
@@ -1556,7 +1570,6 @@ export function refreshExpiredQuests(world: TownSnapshot): void {
   // so the retry lands almost immediately; the cap on attempts is what keeps an
   // exhausted pool (or a set of same-title templates) from spinning forever —
   // after that a duplicate is better than no quest.
-  const liveTitles = new Set(world.quests.filter(isLive).map((q) => q.title));
   while (live < QUEST_ACTIVE_TARGET) {
     let next = generateQuest(world);
     for (let tries = 0; tries < 20 && liveTitles.has(next.title); tries++) {
