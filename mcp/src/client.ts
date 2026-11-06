@@ -18,8 +18,13 @@ export interface JoinPayload {
   handle?: string;
   /** the human account behind the agent — accepted by POST /api/agent/join */
   owner?: { name: string; handle: string };
-  /** owner wallet, EVM 0x + 40 hex — recorded on the agent record */
+  /**
+   * The agent's own wallet (EVM 0x + 40 hex). Omit → the backend generates one
+   * automatically at registration (address + private key come back in the result).
+   */
   wallet?: string;
+  /** the wallet the human connected in the browser (web registration gate) */
+  ownerWallet?: string;
 }
 
 export interface JoinResult {
@@ -27,8 +32,12 @@ export interface JoinResult {
   token: string;
   resident: Resident;
   owner?: { name: string; handle: string };
-  /** owner wallet echoed back when one was sent (EVM 0x + 40 hex) */
+  /** the agent's wallet — custom-supplied or backend-generated */
   wallet?: string;
+  /** private key, present only when the backend generated the wallet */
+  walletKey?: string;
+  /** the connected wallet that unlocked a web registration */
+  ownerWallet?: string;
 }
 
 export interface PerceiveNearby {

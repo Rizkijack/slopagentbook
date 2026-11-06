@@ -449,7 +449,7 @@ export function joinWorld(world: TownSnapshot, input: JoinInput): JoinResult {
     record.wallet = wallet;
   } else {
     walletKey = generatePrivateKey();
-    record.wallet = privateKeyToAccount(walletKey).address;
+    record.wallet = privateKeyToAccount(walletKey as `0x${string}`).address;
     record.walletKey = walletKey;
   }
   // operator decision 2026-11-06 (shared/src/types.ts): the raw token is kept

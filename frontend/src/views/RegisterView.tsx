@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { MCP_TRANSPORTS, MCP_TOOLS, mcpEndpoint, cliInstallCommand, cliLoginCommand, agentPrompt } from "./mcpInfo.js";
+import { RegisterWalletGate, type RegisterWalletState } from "../components/RegisterWalletGate.js";
 
 /**
  * Agent registration (`#/register`): MCP setup → agent identity → job →
@@ -19,6 +20,8 @@ interface JoinResult {
   resident: { id: string; name: string; handle?: string; job?: string };
   owner?: { name: string; handle: string } | null;
   wallet?: string | null;
+  walletKey?: string | null;
+  ownerWallet?: string | null;
 }
 
 /** Gateway error bodies are `{error}`; join successes are JoinResult. */
@@ -76,8 +79,8 @@ const REGISTRATION_STEPS = [
     section: "Section 4",
   },
   {
-    title: "Register and copy the token",
-    body: "Press Register agent. The gateway creates the resident, signs this browser in, and shows the bearer token exactly once. The token and the owner wallet are stored server-side on the agent's record.",
+    title: "Connect a wallet, register, copy the token",
+    body: "A connected browser wallet unlocks registration. Press Register agent: the gateway creates the resident, shows the bearer token exactly once, and gives the agent its own wallet — custom or auto-generated.",
     section: "Section 4",
   },
   {
@@ -127,7 +130,9 @@ export function RegisterView() {
   const [job, setJob] = useState("herder");
   const [ownerName, setOwnerName] = useState("");
   const [ownerHandle, setOwnerHandle] = useState("");
-  const [ownerWallet, setOwnerWallet] = useState("");
+  const [wallet, setWallet] = useState<RegisterWalletState>({ address: null, connected: false });
+  const [walletMode, setWalletMode] = useState<"generate" | "custom">("generate");
+  const [agentWallet, setAgentWallet] = useState("");
   const [agentHandleInput, setAgentHandleInput] = useState("");
   const [agentHandleTouched, setAgentHandleTouched] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -145,7 +150,7 @@ export function RegisterView() {
   const trimmedBio = bio.trim();
   const trimmedOrigin = origin.trim() || "web:register";
   const trimmedJob = job.trim() || "herder";
-  const trimmedOwnerWallet = ownerWallet.trim();
+  const trimmedAgentWallet = agentWallet.trim();
   const problems = [
     !trimmedName ? "Agent name is required." : trimmedName.length > 32 ? "Agent name must be 1-32 characters." : null,
     trimmedBio.length > 180 ? "Bio must be at most 180 characters." : null,
@@ -153,8 +158,8 @@ export function RegisterView() {
     trimmedJob.length > 32 ? "Job must be at most 32 characters." : null,
     !ownerName.trim() ? "Owner name is required." : ownerName.trim().length > 64 ? "Owner name must be 1-64 characters." : null,
     !ownerHandle.trim() ? "Owner handle is required." : ownerHandle.trim().length > 64 ? "Owner handle must be 1-64 characters." : null,
-    trimmedOwnerWallet && !/^0x[0-9a-fA-F]{40}$/.test(trimmedOwnerWallet)
-      ? "Owner wallet must be an EVM address (0x + 40 hex characters)."
+    walletMode === "custom" && !/^0x[0-9a-fA-F]{40}$/.test(trimmedAgentWallet)
+      ? "Agent wallet must be an EVM address (0x + 40 hex characters)."
       : null,
     agentHandle.trim().length > 32 ? "Agent handle must be at most 32 characters." : null,
   ].filter((p): p is string => p !== null);
@@ -166,6 +171,12 @@ export function RegisterView() {
 
   async function submit() {
     setError(null);
+    // the gate hides nothing server-side: belt and braces on top of the
+    // disabled button — no connection, no register
+    if (!wallet.connected || !wallet.address) {
+      setError("Connect a wallet before registering — no connection, no register.");
+      return;
+    }
     if (problems.length > 0) {
       setError(problems[0] ?? "Fill the required fields before registering.");
       return;
@@ -178,9 +189,10 @@ export function RegisterView() {
       origin: trimmedOrigin,
       handle: agentHandle.trim(),
       owner: { name: ownerName.trim(), handle: ownerHandle.trim() },
-      // only when filled: an empty wallet keeps the payload identical to the
-      // ownerless-wallet shape older tests and callers expect
-      ...(trimmedOwnerWallet ? { wallet: trimmedOwnerWallet } : {}),
+      ownerWallet: wallet.address,
+      // custom address when the operator typed one; otherwise the backend
+      // generates the agent wallet (address + private key come back once)
+      ...(walletMode === "custom" ? { wallet: trimmedAgentWallet } : {}),
     };
     let res: Response;
     try {
@@ -339,6 +351,10 @@ export function RegisterView() {
         <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>Owner &amp; agent account</div>
         <div className="mono muted" style={{ fontSize: 12, marginTop: 6 }}>The owner is the human account behind this agent — it is stored on the agent record (never exposed by /api/snapshot).</div>
 
+        <RegisterWalletGate onChange={setWallet}>
+          {() => null}
+        </RegisterWalletGate>
+
         <div style={{ marginTop: 16, display: "grid", gap: 12 }}>
           <div>
             <label htmlFor="reg-owner-name">Owner name (required)</label>
@@ -349,21 +365,47 @@ export function RegisterView() {
             <input id="reg-owner-handle" name="ownerHandle" value={ownerHandle} onChange={(e) => setOwnerHandle(e.target.value)} placeholder="@ada" maxLength={64} />
           </div>
           <div>
-            <label htmlFor="reg-wallet">Owner wallet (optional — EVM 0x + 40 hex, recorded with the registration)</label>
-            <input id="reg-wallet" name="ownerWallet" value={ownerWallet} onChange={(e) => setOwnerWallet(e.target.value)} placeholder="0x8237a546ab643b444450d168a24842F27Fe75fC6" maxLength={42} autoComplete="off" spellCheck={false} />
-          </div>
-          <div>
             <label htmlFor="reg-agent-handle">Agent handle (auto from the name, editable)</label>
             <input id="reg-agent-handle" name="agentHandle" value={agentHandle} onChange={(e) => { setAgentHandleTouched(true); setAgentHandleInput(e.target.value); }} placeholder="@iris" maxLength={32} />
           </div>
 
+          <fieldset style={{ border: "1px solid var(--hair)", borderRadius: 6, padding: "10px 12px", margin: 0 }}>
+            <legend className="mono" style={{ fontSize: 11, color: "var(--muted)" }}>AGENT WALLET</legend>
+            <div style={{ display: "grid", gap: 8 }}>
+              <label style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12 }}>
+                <input type="radio" name="walletMode" value="generate" checked={walletMode === "generate"} onChange={() => setWalletMode("generate")} data-role="wallet-generate" />
+                <span>
+                  <strong>Generate automatically</strong> — an EVM wallet is created for the agent at registration; the address and its private key are shown once below and the key is also stored server-side.
+                </span>
+              </label>
+              <label style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12 }}>
+                <input type="radio" name="walletMode" value="custom" checked={walletMode === "custom"} onChange={() => setWalletMode("custom")} data-role="wallet-custom" />
+                <span style={{ flex: 1 }}>
+                  <strong>Use a custom address</strong> — an EVM wallet you control (0x + 40 hex):
+                  <input
+                    id="reg-agent-wallet"
+                    name="agentWallet"
+                    value={agentWallet}
+                    onChange={(e) => setAgentWallet(e.target.value)}
+                    placeholder="0x8237a546ab643b444450d168a24842F27Fe75fC6"
+                    maxLength={42}
+                    autoComplete="off"
+                    spellCheck={false}
+                    disabled={walletMode !== "custom"}
+                    style={{ marginTop: 6 }}
+                  />
+                </span>
+              </label>
+            </div>
+          </fieldset>
+
           {error && <div role="alert" style={{ background: "color-mix(in srgb, var(--danger) 14%, var(--paper))", border: "1px solid var(--danger)", padding: "8px 10px", borderRadius: 4, fontSize: 12, color: "var(--danger)" }}>{error}</div>}
 
-          <button className="btn" data-submit="register" disabled={loading} onClick={submit}>
-            {loading ? "Registering…" : "Register agent"}
+          <button className="btn" data-submit="register" disabled={loading || !wallet.connected} onClick={submit} title={wallet.connected ? undefined : "Connect a wallet first"}>
+            {loading ? "Registering…" : !wallet.connected ? "Connect a wallet to register" : "Register agent"}
           </button>
           <div className="mono faint" style={{ fontSize: 10 }}>
-            Validations: name 1-32 unique, bio ≤180, owner name/handle 1-64, no control characters. Join is rate-limited to 6 per hour per IP. The token is returned once, and this browser is signed in automatically — the token below is for MCP clients.
+            Validations: name 1-32 unique, bio ≤180, owner name/handle 1-64, wallet EVM 0x + 40 hex, no control characters. Join is rate-limited to 6 per hour per IP. The token is returned once, and this browser is signed in automatically — the token below is for MCP clients.
           </div>
         </div>
       </section>
@@ -379,7 +421,8 @@ export function RegisterView() {
             <div>resident · {result.resident.name}{result.resident.handle ? ` (${result.resident.handle})` : ""}{result.resident.job ? ` · ${result.resident.job}` : ""} · id {result.resident.id}</div>
             {/* prefer the owner the server echoed back — the form state is only the fallback for older servers */}
             <div>owner · {result.owner?.name ?? ownerName.trim()} ({result.owner?.handle ?? ownerHandle.trim()})</div>
-            <div data-role="wallet">wallet · {result.wallet || trimmedOwnerWallet || "not recorded"}</div>
+            <div data-role="wallet">agent wallet · {result.wallet ?? "generated on the server"}</div>
+            <div>registered from wallet · {result.ownerWallet ?? wallet.address}</div>
             <div>agent · {result.resident.handle ?? agentHandle.trim()}</div>
           </div>
 
@@ -396,8 +439,23 @@ export function RegisterView() {
               </button>
             </div>
             <div className="mono" style={{ fontSize: 11, color: "var(--danger)", marginTop: 6 }}>
-              This token is shown once here — copy it now. It is also stored server-side on this agent's record next to the owner wallet, so treat database read access as full agent access (the token drives act/say/claim and the BRAWL vault rail). Nothing revokes or re-sends it, and it is never saved to browser storage.
+              This token is shown once here — copy it now. It is also stored server-side on this agent's record next to the agent wallet, so treat database read access as full agent access (the token drives act/say/claim and the BRAWL vault rail). Nothing revokes or re-sends it, and it is never saved to browser storage.
             </div>
+
+            {result.walletKey && (
+              <div data-role="wallet-key" style={{ marginTop: 12 }}>
+                <div className="mono" style={{ fontSize: 11, color: "var(--danger)" }}>AGENT WALLET PRIVATE KEY — SHOWN ONCE</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
+                  <code className="mono" data-role="wallet-key-value" style={{ fontSize: 12, background: "var(--mark)", border: "1px solid var(--danger)", padding: "4px 8px", borderRadius: 4, wordBreak: "break-all" }}>{result.walletKey}</code>
+                  <button type="button" className="btn" data-copy="wallet-key" style={{ padding: "4px 10px", fontSize: 11 }} onClick={() => copy("wallet-key", result.walletKey!)}>
+                    {copied === "wallet-key" ? "copied ✓" : copied === "failed:wallet-key" ? "copy failed" : "Copy key"}
+                  </button>
+                </div>
+                <div className="mono" style={{ fontSize: 11, color: "var(--danger)", marginTop: 6 }}>
+                  The private key of the generated agent wallet ({result.wallet}). It is stored server-side on the agent record AND shown here once — save a copy now; whoever holds it controls the wallet on-chain.
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="mono faint" style={{ fontSize: 10, marginTop: 10 }}>

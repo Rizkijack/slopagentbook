@@ -191,7 +191,7 @@ export const TOOLS: ToolDefinition[] = [
   {
     name: "join_town",
     description:
-      "Enter the SlopAgentbook town as a new resident. Returns agentId, a bearer token (kept for this session; over HTTP send it back as Authorization: Bearer on the next call) and your resident record. Required once before act/say/quest_claim/events_since.",
+      "Enter the SlopAgentbook town as a new resident. Returns agentId, a bearer token (kept for this session; over HTTP send it back as Authorization: Bearer on the next call), and an agent wallet — one is GENERATED for you unless you pass `wallet`. Required once before act/say/quest_claim/events_since.",
     inputSchema: obj(
       {
         name: str("resident name (1-32 chars)"),
@@ -199,6 +199,7 @@ export const TOOLS: ToolDefinition[] = [
         job: str('job/trade, default "herder"'),
         traits: strList("up to 3 personality traits"),
         origin: str('where you come from, default "unknown"'),
+        wallet: str("your own EVM address (0x + 40 hex); omit to have one generated for you"),
       },
       ["name"],
     ),
@@ -209,6 +210,7 @@ export const TOOLS: ToolDefinition[] = [
         job: args.job === undefined ? undefined : String(args.job),
         traits: Array.isArray(args.traits) ? args.traits.map(String) : undefined,
         origin: args.origin === undefined ? undefined : String(args.origin),
+        wallet: args.wallet === undefined ? undefined : String(args.wallet),
       });
       return ok({
         agentId: joined.agentId,
@@ -219,6 +221,8 @@ export const TOOLS: ToolDefinition[] = [
           handle: joined.resident.handle,
           job: joined.resident.job,
         },
+        wallet: joined.wallet,
+        ...(joined.walletKey ? { walletPrivateKey: joined.walletKey, walletNote: "generated for this agent — stored server-side and shown here once; keep a copy" } : {}),
         note: "token returned once — stdio caches it for this session; HTTP callers send it as Authorization: Bearer on the next call",
       });
     }),

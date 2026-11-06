@@ -38,6 +38,7 @@ const IP_DUP = "198.51.100.16";
 const IP_CTRL = "198.51.100.17";
 const IP_WALLET = "198.51.100.18";
 const IP_BAD_WALLET = "198.51.100.19";
+const IP_GEN_WALLET = "198.51.100.20";
 
 let seq = 0;
 /** Unique agent name per call — well under the 32-char gateway limit. */
@@ -109,7 +110,7 @@ describe("agent registration (POST /api/agent/join with owner)", () => {
     expect(world.agents!.length).toBe(agentsBefore);
   });
 
-  it("a join without owner stays backward compatible", async () => {
+  it("a join without owner stays backward compatible and still gets an agent wallet", async () => {
     const res = await request(app)
       .post("/api/agent/join")
       .set("X-Forwarded-For", IP_PLAIN)
@@ -118,26 +119,32 @@ describe("agent registration (POST /api/agent/join with owner)", () => {
     expect(res.status).toBe(200);
     expect(res.body.token).toMatch(/^sabk_[0-9a-f]{48}$/);
     expect(res.body.owner).toBeNull(); // gateway answers `joined.owner ?? null`
-    expect(res.body.wallet).toBeNull(); // same echo rule for the wallet
+    expect(res.body.ownerWallet).toBeNull(); // no browser wallet on this path
 
-    // `world.agents[0]` belongs to the owner-bearing join above, so the
-    // backward-compatible claim is asserted on THIS join's own record.
+    // every agent ends up with a wallet: none was sent, so the backend
+    // generated one — address echoed, private key rides the response once
+    expect(res.body.wallet).toMatch(/^0x[0-9a-fA-F]{40}$/);
+    expect(res.body.walletKey).toMatch(/^0x[0-9a-f]{64}$/);
+
     const rec = world.agents!.find((a) => a.id === res.body.agentId)!;
     expect(rec).toBeTruthy();
     expect(rec.owner).toBeUndefined();
-    expect(rec.wallet).toBeUndefined();
+    expect(rec.ownerWallet).toBeUndefined();
+    expect(rec.wallet).toBe(res.body.wallet);
+    expect(rec.walletKey).toBe(res.body.walletKey);
 
     const me = await request(app).get("/api/agent/me").set("Authorization", `Bearer ${res.body.token}`);
     expect(me.status).toBe(200);
     expect(me.body.owner).toBeNull();
   });
 
-  // operator decision 2026-11-06: the raw token AND the owner wallet are stored
-  // on the agent record, keyed to the wallet the registration came from.
-  it("persists the raw token and the owner wallet on the agent record, keyed together", async () => {
+  // operator decisions 2026-11-06: the raw token AND the agent wallet live on
+  // the record; a GENERATED wallet also carries its private key server-side.
+  it("persists a custom agent wallet with no key, and records the connecting owner wallet", async () => {
     // NOT the treasury address: that one legitimately rides the snapshot's
     // config, which would confound the redaction assertion below.
-    const WALLET = "0x11f0aa5ce4e5fa432a35b2a1b6b7c8d9e0f1a2b3";
+    const AGENT_WALLET = "0x11f0aa5ce4e5fa432a35b2a1b6b7c8d9e0f1a2b3";
+    const OWNER_WALLET = "0x22e1bb6df5f6ab543b463c2b7b8d9e0f1a2b3c4d";
     const res = await request(app)
       .post("/api/agent/join")
       .set("X-Forwarded-For", IP_WALLET)
@@ -145,28 +152,54 @@ describe("agent registration (POST /api/agent/join with owner)", () => {
         name: uname("F"),
         origin: "test:register",
         owner: { name: OWNER_NAME, handle: OWNER_HANDLE },
-        wallet: WALLET,
+        wallet: AGENT_WALLET,
+        ownerWallet: OWNER_WALLET,
       });
 
     expect(res.status).toBe(200);
     expect(res.body.token).toMatch(/^sabk_[0-9a-f]{48}$/);
-    expect(res.body.wallet).toBe(WALLET); // echoed like owner, so the card shows what got persisted
+    expect(res.body.wallet).toBe(AGENT_WALLET); // echoed like owner, so the card shows what got persisted
+    expect(res.body.ownerWallet).toBe(OWNER_WALLET);
+    expect(res.body).not.toHaveProperty("walletKey"); // custom address → nothing was generated
 
     const rec = world.agents!.find((a) => a.id === res.body.agentId)!;
-    expect(rec.wallet).toBe(WALLET);
+    expect(rec.wallet).toBe(AGENT_WALLET);
+    expect(rec.ownerWallet).toBe(OWNER_WALLET);
+    expect(rec.walletKey).toBeUndefined(); // a custom address carries no key
     // the raw token lives on the record; the hash stays the auth path
     expect(rec.token).toBe(res.body.token);
     expect(rec.tokenHash).not.toBe(res.body.token);
     expect(rec.tokenHash).toMatch(/^[0-9a-f]{64}$/);
 
     // the persisted snapshot still redacts the registry: neither the token nor
-    // the wallet may leak through GET /api/snapshot
+    // either wallet may leak through GET /api/snapshot
     const snap = await request(app).get("/api/snapshot");
     expect(snap.status).toBe(200);
     const snapText = JSON.stringify(snap.body);
     expect(snapText).not.toContain(res.body.token);
-    expect(snapText).not.toContain(WALLET);
+    expect(snapText).not.toContain(AGENT_WALLET);
+    expect(snapText).not.toContain(OWNER_WALLET);
     expect(snapText).not.toContain("tokenHash");
+  });
+
+  it("a generated agent wallet is stored with its private key, shown once in the response", async () => {
+    const res = await request(app)
+      .post("/api/agent/join")
+      .set("X-Forwarded-For", IP_GEN_WALLET)
+      .send({ name: uname("H"), origin: "test:register" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.wallet).toMatch(/^0x[0-9a-fA-F]{40}$/);
+    expect(res.body.walletKey).toMatch(/^0x[0-9a-f]{64}$/);
+
+    const rec = world.agents!.find((a) => a.id === res.body.agentId)!;
+    expect(rec.wallet).toBe(res.body.wallet);
+    expect(rec.walletKey).toBe(res.body.walletKey); // custodial copy on the record
+    expect(rec.walletKey).not.toBe(rec.wallet);
+
+    // the key never leaks through the snapshot either
+    const snap = await request(app).get("/api/snapshot");
+    expect(JSON.stringify(snap.body)).not.toContain(res.body.walletKey!);
   });
 
   it("an invalid wallet answers 400 before the world is touched", async () => {
@@ -189,6 +222,13 @@ describe("agent registration (POST /api/agent/join with owner)", () => {
       expect(res.status, c.label).toBe(400);
       expect(JSON.stringify(res.body), c.label).toContain("wallet must be an EVM address");
     }
+
+    const badOwner = await request(app)
+      .post("/api/agent/join")
+      .set("X-Forwarded-For", IP_BAD_WALLET)
+      .send({ name: uname("G2"), origin: "test:register", ownerWallet: "not-an-address" });
+    expect(badOwner.status).toBe(400);
+    expect(JSON.stringify(badOwner.body)).toContain("owner wallet must be an EVM address");
 
     // validation runs before any mutation: neither the herd nor the registry moved
     expect(world.herd.length).toBe(herdBefore);

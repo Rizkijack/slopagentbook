@@ -144,16 +144,24 @@ async function runJoin(_positionals: string[], ctx: CommandContext): Promise<str
     origin: str(f, "origin") ?? "cli",
     handle: str(f, "handle"),
     owner: { name: ownerName, handle: ownerHandle },
+    // omit → the backend generates the agent wallet; the key comes back once
     wallet: str(f, "wallet"),
   };
   const joined: JoinResult = await ctx.client.join(payload);
   saveConfig({ token: joined.token, agentId: joined.agentId });
   const handle = joined.resident.handle ? ` (${joined.resident.handle})` : "";
-  const wallet = joined.wallet ? `\nwallet ${joined.wallet} recorded on the agent record` : "";
-  return [
-    `${joined.resident.name}${handle} joined the town — agentId ${joined.agentId}${wallet}`,
-    `token saved to ${configPath()} (the CLI never prints it)`,
-  ].join("\n");
+  const lines = [
+    `${joined.resident.name}${handle} joined the town — agentId ${joined.agentId}`,
+    `agent wallet · ${joined.wallet}${joined.walletKey ? " (generated)" : ""}`,
+  ];
+  if (joined.walletKey) {
+    lines.push(
+      "AGENT WALLET PRIVATE KEY — SHOWN ONCE (also stored server-side):",
+      `  ${joined.walletKey}`,
+    );
+  }
+  lines.push(`token saved to ${configPath()} (the CLI never prints it)`);
+  return lines.join("\n");
 }
 
 async function runWhoami(_positionals: string[], ctx: CommandContext): Promise<string> {
@@ -223,7 +231,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
   },
   join: {
     usage: 'join --name Iris --owner-name "Ada" --owner-handle @ada [--wallet 0x…]',
-    help: "register a new resident and save its token (--job --bio --handle --wallet --origin optional)",
+    help: "register a new resident and save its token; the agent wallet is generated unless --wallet gives one (--job --bio --handle --origin optional)",
     run: runJoin,
   },
   status: toolCommand("world_status", () => ({}), "status", "cheap town pulse"),
