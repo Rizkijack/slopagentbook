@@ -54,12 +54,12 @@ export function SoundtrackToggle() {
             : "Play the town soundtrack (generated, royalty-free)"
       }
       style={{
-        marginTop: 14,
         display: "inline-flex",
         alignItems: "center",
-        gap: 8,
-        padding: "7px 14px",
-        fontSize: 11,
+        gap: 6,
+        padding: "6px 10px",
+        fontSize: 10,
+        whiteSpace: "nowrap",
         letterSpacing: "0.12em",
         textTransform: "uppercase",
         color: on ? "var(--accent)" : "var(--muted)",

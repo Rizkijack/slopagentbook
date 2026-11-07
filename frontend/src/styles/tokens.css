@@ -841,7 +841,7 @@ canvas.town:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; 
 
 /* Slider thumb: gold, framed (§6.4).
  *
- * The sliders in LeashPanel and ScalesCalculator set `accentColor` inline,
+ * The sliders in LeashPanel set `accentColor` inline,
  * which colours the track and its filled portion but leaves the thumb to the
  * browser. Chrome ignores `::-webkit-slider-thumb` unless the control itself
  * is `appearance: none`, so that is set here — and because it takes the track

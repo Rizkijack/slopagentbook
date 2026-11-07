@@ -3,8 +3,8 @@ import type { Leash } from "@slopagentbook/shared";
 import { SETTLEMENT_CHAIN } from "@slopagentbook/shared";
 
 // The five leashes a keeper can pull (blueprint §5.2). Controlled rather than
-// self-managing: the Scales calculator, the spellbook and the save request all
-// read the same single value, so there is one source of truth for the caps.
+// self-managing: every reader of the caps shares one value, so there is one
+// source of truth for them.
 // The size caps are denominated in the rail's native symbol, read from the
 // shared contract rather than retyped here.
 const SYMBOL = SETTLEMENT_CHAIN.nativeSymbol;

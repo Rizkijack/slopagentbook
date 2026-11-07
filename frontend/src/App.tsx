@@ -18,7 +18,6 @@ const PaperView = lazy(() => import("./views/PaperView.js").then((m) => ({ defau
 const ForkView = lazy(() => import("./views/ForkView.js").then((m) => ({ default: m.ForkView })));
 const LineageView = lazy(() => import("./views/LineageView.js").then((m) => ({ default: m.LineageView })));
 const CoinView = lazy(() => import("./views/CoinView.js").then((m) => ({ default: m.CoinView })));
-const ProjectsView = lazy(() => import("./views/ProjectsView.js").then((m) => ({ default: m.ProjectsView })));
 const DocsView = lazy(() => import("./views/DocsView.js").then((m) => ({ default: m.DocsView })));
 const LlamaView = lazy(() => import("./views/LlamaView.js").then((m) => ({ default: m.LlamaView })));
 const QuestView = lazy(() => import("./views/QuestView.js").then((m) => ({ default: m.QuestView })));
@@ -30,14 +29,11 @@ const RegisterView = lazy(() => import("./views/RegisterView.js").then((m) => ({
 // like /testnet/ would 404 at the edge before React saw it.
 const VaultView = lazy(() => import("./views/VaultView.js").then((m) => ({ default: m.VaultView })));
 const LedgerView = lazy(() => import("./views/LedgerView.js").then((m) => ({ default: m.LedgerView })));
-const ScalesView = lazy(() => import("./views/ScalesView.js").then((m) => ({ default: m.ScalesView })));
 const BestiaryView = lazy(() => import("./views/BestiaryView.js").then((m) => ({ default: m.BestiaryView })));
 const ElderView = lazy(() => import("./views/ElderView.js").then((m) => ({ default: m.ElderView })));
 const TestnetView = lazy(() => import("./views/TestnetView.js").then((m) => ({ default: m.TestnetView })));
-const GuildView = lazy(() => import("./views/GuildView.js").then((m) => ({ default: m.GuildView })));
 const NoticeView = lazy(() => import("./views/NoticeView.js").then((m) => ({ default: m.NoticeView })));
 const FaqView = lazy(() => import("./views/FaqView.js").then((m) => ({ default: m.FaqView })));
-const SpellbookView = lazy(() => import("./views/SpellbookView.js").then((m) => ({ default: m.SpellbookView })));
 const WelcomeView = lazy(() => import("./views/WelcomeView.js").then((m) => ({ default: m.WelcomeView })));
 
 export default function App() {
@@ -54,7 +50,7 @@ export default function App() {
   // pinned by frontend/test/app-routes.test.ts, which keeps it agreeing with
   // the nav links and the route cases, because tsc never compares the
   // literals itself.
-  const KNOWN_PAGES = ["welcome", "town", "herd", "feed", "paper", "quest", "fork", "register", "lineage", "projects", "coin", "brawl", "vault", "ledger", "scales", "bestiary", "elder", "testnet", "guild", "notice", "faq", "spellbook", "docs", "llama", "contest"];
+  const KNOWN_PAGES = ["welcome", "town", "herd", "feed", "paper", "quest", "fork", "register", "lineage", "coin", "brawl", "vault", "ledger", "bestiary", "elder", "testnet", "notice", "faq", "docs", "llama", "contest"];
 
   // page turn animation
   useEffect(() => {
@@ -129,24 +125,21 @@ export default function App() {
           <Link to="fork" className={page === "fork" ? "active" : ""}>Fork</Link>
           <Link to="register" className={page === "register" ? "active" : ""}>Register</Link>
           <Link to="lineage" className={page === "lineage" ? "active" : ""}>Lineage</Link>
-          <Link to="projects" className={page === "projects" ? "active" : ""}>Projects</Link>
           <Link to="coin" className={page === "coin" ? "active" : ""}>Coin</Link>
           <Link to="brawl" className={page === "brawl" ? "active" : ""}>Brawl</Link>
           <Link to="vault" className={page === "vault" ? "active" : ""}>Vault</Link>
           <Link to="ledger" className={page === "ledger" ? "active" : ""}>Ledger</Link>
-          <Link to="scales" className={page === "scales" ? "active" : ""}>Scales</Link>
           <Link to="bestiary" className={page === "bestiary" ? "active" : ""}>Bestiary</Link>
           <Link to="elder" className={page === "elder" ? "active" : ""}>Elder</Link>
           {/* Label names the rail this opens; the hash stays #/testnet so saved
               links keep working. See StatusStrip.tsx for why the two differ. */}
           <Link to="testnet" className={page === "testnet" ? "active" : ""}>Mainnet</Link>
-          <Link to="guild" className={page === "guild" ? "active" : ""}>Guild</Link>
           <Link to="notice" className={page === "notice" ? "active" : ""}>Notice</Link>
           <Link to="faq" className={page === "faq" ? "active" : ""}>FAQ</Link>
-          <Link to="spellbook" className={page === "spellbook" ? "active" : ""}>Spellbook</Link>
           <Link to="docs" className={page === "docs" ? "active" : ""}>Docs</Link>
         </nav>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+          <SoundtrackToggle />
           <WalletMenu />
           <StatusStrip />
           <button className="theme-toggle" onClick={toggle} aria-label={`Switch to ${next} mode`} title={`Theme: ${theme} — click to toggle`}>
@@ -177,14 +170,11 @@ export default function App() {
         {page === "town" && <TownView snapshot={state} onFollowChange={setFollowPick} />}
         {page === "vault" && <VaultView />}
         {page === "ledger" && <LedgerView />}
-        {page === "scales" && <ScalesView />}
         {page === "bestiary" && <BestiaryView />}
         {page === "elder" && <ElderView />}
         {page === "testnet" && <TestnetView />}
-        {page === "guild" && <GuildView />}
         {page === "notice" && <NoticeView />}
         {page === "faq" && <FaqView />}
-        {page === "spellbook" && <SpellbookView />}
         {page === "herd" && <HerdView snapshot={state} />}
         {page === "feed" && <FeedView snapshot={state} />}
         {page === "paper" && <PaperView snapshot={state} />}
@@ -192,7 +182,6 @@ export default function App() {
         {page === "fork" && <ForkView snapshot={state} preset={arg} onForked={() => { /* state will refresh via SSE herd */ }} />}
         {page === "register" && <RegisterView />}
         {page === "lineage" && <LineageView snapshot={state} />}
-        {page === "projects" && <ProjectsView snapshot={state} />}
           {page === "coin" && <CoinView snapshot={state} />}
         {page === "docs" && <DocsView snapshot={state} />}
         {page === "contest" && <ContestView snapshot={state} id={arg} />}
@@ -205,7 +194,6 @@ export default function App() {
 
       <footer className="mono site-footer" style={{ textAlign: "center", fontSize: 11, marginTop: 24 }}>
         SlopAgentbook · {Pe}×{vt} tiles · Dual-Brain Sim fallback
-        <SoundtrackToggle />
         {followPick && (
           <div
             data-testid="follow-hud"

@@ -154,7 +154,7 @@ export const MCP_X402: McpX402Status = {
     // The x402 payment rail keys on Solana — the SVM scheme package mcp speaks —
     // while the town's settlement chain (SETTLEMENT_CHAIN) is Elysium. Two rails,
     // two chains: the payment rail's id is pinned in mcp/src/x402.ts and asserted
-    // by mcp/test/x402.test.ts; the literal here mirrors it for the Spellbook page.
+    // by mcp/test/x402.test.ts; the literal here mirrors it for the MCP docs.
     name: "Solana Mainnet",
     id: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d",
     genesisHash: "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d",

@@ -55,8 +55,7 @@ describe("App.tsx routing", () => {
     // rename here without the matching nav link and allowlist entry is caught
     // by the three tests above; this one catches a route dropped outright.
     for (const page of [
-      "vault", "ledger", "scales", "bestiary", "elder", "testnet", "guild", "notice",
-      "faq", "spellbook",
+      "vault", "ledger", "bestiary", "elder", "testnet", "notice", "faq",
     ]) {
       expect(routeCases, `missing route for #/${page}`).toContain(page);
       expect(linkTargets, `no nav link to #/${page}`).toContain(page);

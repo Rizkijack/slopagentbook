@@ -37,8 +37,7 @@ export function FaqView() {
       <div className="card muted" style={{ fontSize: 12 }}>
         The same rules said as dialog are with <a href="#/elder">the Elder</a>; the risks are drawn in{" "}
         <a href="#/bestiary">the Bestiary</a>; the chain facts and the anti-fraud warnings live on{" "}
-        <a href="#/notice">the Notice Board</a>, and the code to drive the rail is in{" "}
-        <a href="#/spellbook">the Spellbook</a>.
+        <a href="#/notice">the Notice Board</a>.
       </div>
     </div>
   );
