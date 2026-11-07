@@ -32,6 +32,10 @@ frontend/*.txt
 .DS_Store
 .vercel
 
+# Supabase CLI local state — per-machine link metadata (`supabase link`),
+# regenerated on demand and never part of the product.
+supabase/.temp/
+
 # Recorded demo video. A 3.6MB binary that scripts/record-demo.mjs regenerates
 # in about a minute — recording it is reproducible, so committing it would only
 # make every re-record a diff nobody can read.
