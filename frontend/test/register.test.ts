@@ -19,9 +19,28 @@ import { resolve } from "node:path";
 // short-circuiting the network call, and the token discipline the component
 // promises: memory only — never localStorage/sessionStorage, never console.
 
+// The wallet gate wraps the real wagmi/AppKit stack, which needs a live wallet
+// to flip state. Mock it so tests drive the connection state directly; the
+// component's own two-branch split is exercised by the build, not here.
+const gate = vi.hoisted(() => ({ state: { address: null as string | null, connected: false } }));
+vi.mock("../src/components/RegisterWalletGate.js", async () => {
+  const { useEffect } = await import("react");
+  return {
+    RegisterWalletGate: ({ onChange }: { onChange: (w: { address: string | null; connected: boolean }) => void }) => {
+      const state = gate.state;
+      useEffect(() => {
+        onChange(state);
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- the hoisted object is the dependency
+      }, [state]);
+      return null;
+    },
+  };
+});
+
 const RUN = Date.now().toString().slice(-7);
 const OWNER_HANDLE = `@ada${RUN}`;
 const TOKEN = "sabk_" + "a".repeat(48);
+const OWNER_WALLET = "0x22e1bb6df5f6ab543b463c2b7b8d9e0f1a2b3c4d";
 
 type StubRes = { ok: boolean; status: number; json(): Promise<unknown> };
 
@@ -77,6 +96,9 @@ beforeEach(() => {
   sessionStorage.clear();
   fetchMock.mockReset();
   globalThis.fetch = fetchMock as unknown as typeof fetch;
+  // the gate is connected by default: the register button unlocks, and the
+  // locked-state tests flip this to a disconnected state before rendering
+  gate.state = { address: OWNER_WALLET, connected: true };
   act(() => {
     root.render(createElement(RegisterView, {}));
   });
@@ -102,7 +124,7 @@ describe("RegisterView layout & labels", () => {
       "Name the agent",
       "Assign a town job",
       "Name the owner",
-      "Register and copy the token",
+      "Connect a wallet, register, copy the token",
       "Connect the AI client",
       "Give it work",
     ];
@@ -149,12 +171,14 @@ describe("RegisterView submit", () => {
     expect(headers["Content-Type"]).toBe("application/json");
 
     const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
-    expect(Object.keys(body).sort()).toEqual(["handle", "job", "name", "origin", "owner"]);
+    // generate mode (the default) sends no `wallet` — the backend creates one
+    expect(Object.keys(body).sort()).toEqual(["handle", "job", "name", "origin", "owner", "ownerWallet"]);
     expect(body.name).toBe("Iris Reg");
     expect(body.job).toBe("herder");
     expect(body.origin).toBe("web:register");
     expect(body.owner).toEqual({ name: "Ada Lovelace", handle: OWNER_HANDLE });
     expect(body.handle).toBe("@irisreg"); // auto-derived from the name until edited
+    expect(body.ownerWallet).toBe(OWNER_WALLET); // the connected wallet gates + records the join
 
     const card = host.querySelector('[data-section="result"]');
     expect(card).not.toBeNull();
@@ -260,60 +284,116 @@ describe("RegisterView submit", () => {
     expect(alertText()).toContain("Owner name is required.");
   });
 
-  it("sends the owner wallet only when filled, and shows it on the result card", async () => {
-    const WALLET = "0x8237a546ab643b444450d168a24842F27Fe75fC6";
+  it("generate mode: the server-generated wallet and its one-time key land on the result card", async () => {
+    const GEN_WALLET = "0x33f2cc7e06a7bc654c574d3c8c9e0f1a2b3c4d5e";
+    const GEN_KEY = "0x" + "ab".repeat(32);
     fetchMock.mockResolvedValue(
       stub(200, {
-        agentId: "agw",
+        agentId: "agg",
         token: TOKEN,
-        resident: { id: "lmw", name: "Iris Reg", handle: "@irisreg", job: "herder" },
+        resident: { id: "lmg", name: "Iris Reg", handle: "@irisreg", job: "herder" },
         owner: { name: "Ada Lovelace", handle: OWNER_HANDLE },
-        wallet: WALLET,
+        wallet: GEN_WALLET,
+        walletKey: GEN_KEY,
+        ownerWallet: OWNER_WALLET,
       }),
     );
 
-    fillValid();
-    await act(async () => {
-      setInput("#reg-wallet", WALLET);
-    });
+    fillValid(); // generate is the default mode
     await submit();
 
     const body = JSON.parse(String(fetchMock.mock.calls[0]![1]!.body)) as Record<string, unknown>;
-    expect(body.wallet).toBe(WALLET);
+    expect(body).not.toHaveProperty("wallet");
 
     const card = host.querySelector('[data-section="result"]')!;
-    expect(card.querySelector('[data-role="wallet"]')?.textContent).toBe(`wallet · ${WALLET}`);
+    expect(card.querySelector('[data-role="wallet"]')?.textContent).toBe(`agent wallet · ${GEN_WALLET}`);
+    expect(card.querySelector('[data-role="wallet-key-value"]')?.textContent).toBe(GEN_KEY);
+    expect(card.textContent).toContain("AGENT WALLET PRIVATE KEY — SHOWN ONCE");
   });
 
-  it("an empty wallet keeps the payload at the exact five keys", async () => {
+  it("connected mode: the agent wallet is the wallet the operator connected", async () => {
     fetchMock.mockResolvedValue(
       stub(200, {
-        agentId: "agn",
+        agentId: "agc",
         token: TOKEN,
-        resident: { id: "lmn", name: "Iris Reg", handle: "@irisreg", job: "herder" },
+        resident: { id: "lmc", name: "Iris Reg", handle: "@irisreg", job: "herder" },
         owner: { name: "Ada Lovelace", handle: OWNER_HANDLE },
-        wallet: null,
+        wallet: OWNER_WALLET,
+        ownerWallet: OWNER_WALLET,
       }),
     );
 
     fillValid();
-    await submit();
-
-    const body = JSON.parse(String(fetchMock.mock.calls[0]![1]!.body)) as Record<string, unknown>;
-    expect(Object.keys(body).sort()).toEqual(["handle", "job", "name", "origin", "owner"]);
-    // the card still answers the question instead of hiding the field
-    expect(host.querySelector('[data-role="wallet"]')?.textContent).toBe("wallet · not recorded");
-  });
-
-  it("refuses a malformed wallet locally, before any network call", async () => {
-    fillValid();
-    await act(async () => {
-      setInput("#reg-wallet", "Ercx6eTdujr7co8YnVRCnW5OTBAmMfSAqB2E4tQVJkvS");
+    const radio = host.querySelector<HTMLInputElement>('[data-role="wallet-connected"]')!;
+    expect(radio.disabled).toBe(false); // a wallet is connected in this run
+    act(() => {
+      radio.click();
     });
     await submit();
 
+    const body = JSON.parse(String(fetchMock.mock.calls[0]![1]!.body)) as Record<string, unknown>;
+    expect(body.wallet).toBe(OWNER_WALLET);
+    // nothing was generated, so no private key block is rendered
+    expect(host.querySelector('[data-role="wallet-key"]')).toBeNull();
+  });
+
+  it("custom mode: sends the typed address, and refuses a malformed one locally", async () => {
+    const CUSTOM = "0x44e3dd8f17b8cd765d685e4d9d0f1a2b3c4d5e6f";
+    fetchMock.mockResolvedValue(
+      stub(200, {
+        agentId: "agu",
+        token: TOKEN,
+        resident: { id: "lmu", name: "Iris Reg", handle: "@irisreg", job: "herder" },
+        owner: { name: "Ada Lovelace", handle: OWNER_HANDLE },
+        wallet: CUSTOM,
+        ownerWallet: OWNER_WALLET,
+      }),
+    );
+
+    fillValid();
+    act(() => {
+      host.querySelector<HTMLInputElement>('[data-role="wallet-custom"]')!.click();
+    });
+    await act(async () => {
+      setInput("#reg-agent-wallet", CUSTOM);
+    });
+    await submit();
+    expect(JSON.parse(String(fetchMock.mock.calls[0]![1]!.body)).wallet).toBe(CUSTOM);
+
+    // malformed address: the local validation wins over the network
+    fetchMock.mockClear();
+    act(() => {
+      host.querySelector<HTMLInputElement>('[data-role="wallet-custom"]')!.click();
+    });
+    await act(async () => {
+      setInput("#reg-agent-wallet", "Ercx6eTdujr7co8YnVRCnW5OTBAmMfSAqB2E4tQVJkvS");
+    });
+    const btn = host.querySelector<HTMLButtonElement>('[data-submit="register"]')!;
+    await act(async () => {
+      btn.click();
+      await new Promise((r) => setTimeout(r, 0));
+    });
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(alertText()).toContain("Owner wallet must be an EVM address (0x + 40 hex characters).");
+    expect(alertText()).toContain("Agent wallet must be an EVM address (0x + 40 hex characters).");
+  });
+
+  it("locks registration entirely until a wallet is connected", async () => {
+    // re-render with a disconnected gate: the button must be disabled and the
+    // submit path must never reach the network
+    gate.state = { address: null, connected: false };
+    act(() => {
+      root.render(createElement(RegisterView, {}));
+    });
+
+    fillValid();
+    const btn = host.querySelector<HTMLButtonElement>('[data-submit="register"]')!;
+    expect(btn.disabled).toBe(true);
+    expect(btn.textContent).toContain("Connect a wallet to register");
+    await act(async () => {
+      btn.click();
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 

@@ -38,9 +38,13 @@ function GateBody({
   onChange: (w: RegisterWalletState) => void;
   connectButton: ReactNode;
 }) {
+  // key the effect on the identity, not the object: onChange lifts a fresh
+  // object into the parent, and an unkeyed effect would re-fire every render
+  const key = `${wallet.connected}:${wallet.address ?? ""}`;
   useEffect(() => {
     onChange(wallet);
-  });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- identity key above is the dependency
+  }, [key]);
   return (
     <div style={{ marginTop: 14 }}>
       <div className="mono" style={{ fontSize: 11, color: "var(--muted)" }}>STEP 1 — CONNECT A WALLET (REQUIRED)</div>

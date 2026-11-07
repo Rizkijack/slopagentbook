@@ -261,8 +261,8 @@ describe("join", () => {
     expect(saved.token).toBe(TOKEN);
   });
 
-  it("forwards --wallet and reports it recorded on the agent record", async () => {
-    const WALLET = "0x8237a546ab643b444450d168a24842F27Fe75fC6";
+  it("forwards --wallet as the agent wallet and never prints a key for a custom one", async () => {
+    const WALLET = "0x11f0aa5ce4e5fa432a35b2a1b6b7c8d9e0f1a2b3";
     const calls: Array<{ url: string; init: RequestInit }> = [];
     globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
       calls.push({ url: String(url), init: init ?? {} });
@@ -283,8 +283,33 @@ describe("join", () => {
 
     const body = JSON.parse(String(calls[0]!.init.body)) as Record<string, unknown>;
     expect(body.wallet).toBe(WALLET);
-    expect(out).toContain(`wallet ${WALLET} recorded`);
+    expect(out).toContain(`agent wallet · ${WALLET}`);
+    expect(out).not.toContain("SHOWN ONCE");
     expect(out).not.toContain(TOKEN);
+  });
+
+  it("prints a generated wallet's private key exactly once", async () => {
+    const WALLET = "0x33f2cc7e06a7bc654c574d3c8c9e0f1a2b3c4d5e";
+    const KEY = "0x" + "cd".repeat(32);
+    globalThis.fetch = (async () =>
+      stub(200, {
+        agentId: "ag4",
+        token: TOKEN,
+        resident: { id: "lm4", name: "Cli Test", handle: "@clitest", job: "herder" },
+        wallet: WALLET,
+        walletKey: KEY,
+      })) as unknown as typeof fetch;
+
+    const client = makeClient({ url: "http://gw:11" });
+    const out = await COMMANDS["join"]!.run([], {
+      client,
+      flags: { name: "Cli Test", "owner-name": "Ada", "owner-handle": "@ada" },
+    });
+
+    expect(out).toContain(`agent wallet · ${WALLET} (generated)`);
+    expect(out).toContain("AGENT WALLET PRIVATE KEY — SHOWN ONCE");
+    expect(out).toContain(KEY);
+    expect(out).not.toContain(TOKEN); // the bearer token stays out of stdout
   });
 
   it("refuses to run without the required flags", async () => {

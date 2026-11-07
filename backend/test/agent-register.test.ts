@@ -39,6 +39,9 @@ const IP_CTRL = "198.51.100.17";
 const IP_WALLET = "198.51.100.18";
 const IP_BAD_WALLET = "198.51.100.19";
 const IP_GEN_WALLET = "198.51.100.20";
+/** owner-wallet case needs its own address: IP_BAD_WALLET's 6/hour budget is
+ *  spent by the invalid-agent-wallet loop above. */
+const IP_BAD_OWNER_WALLET = "198.51.100.21";
 
 let seq = 0;
 /** Unique agent name per call — well under the 32-char gateway limit. */
@@ -225,7 +228,7 @@ describe("agent registration (POST /api/agent/join with owner)", () => {
 
     const badOwner = await request(app)
       .post("/api/agent/join")
-      .set("X-Forwarded-For", IP_BAD_WALLET)
+      .set("X-Forwarded-For", IP_BAD_OWNER_WALLET)
       .send({ name: uname("G2"), origin: "test:register", ownerWallet: "not-an-address" });
     expect(badOwner.status).toBe(400);
     expect(JSON.stringify(badOwner.body)).toContain("owner wallet must be an EVM address");

@@ -131,7 +131,7 @@ export function RegisterView() {
   const [ownerName, setOwnerName] = useState("");
   const [ownerHandle, setOwnerHandle] = useState("");
   const [wallet, setWallet] = useState<RegisterWalletState>({ address: null, connected: false });
-  const [walletMode, setWalletMode] = useState<"generate" | "custom">("generate");
+  const [walletMode, setWalletMode] = useState<"generate" | "connected" | "custom">("generate");
   const [agentWallet, setAgentWallet] = useState("");
   const [agentHandleInput, setAgentHandleInput] = useState("");
   const [agentHandleTouched, setAgentHandleTouched] = useState(false);
@@ -190,8 +190,10 @@ export function RegisterView() {
       handle: agentHandle.trim(),
       owner: { name: ownerName.trim(), handle: ownerHandle.trim() },
       ownerWallet: wallet.address,
-      // custom address when the operator typed one; otherwise the backend
-      // generates the agent wallet (address + private key come back once)
+      // three ways to give the agent a wallet: use the connected one, type a
+      // custom address, or let the backend generate one (address + private
+      // key come back once)
+      ...(walletMode === "connected" ? { wallet: wallet.address } : {}),
       ...(walletMode === "custom" ? { wallet: trimmedAgentWallet } : {}),
     };
     let res: Response;
@@ -351,9 +353,7 @@ export function RegisterView() {
         <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>Owner &amp; agent account</div>
         <div className="mono muted" style={{ fontSize: 12, marginTop: 6 }}>The owner is the human account behind this agent — it is stored on the agent record (never exposed by /api/snapshot).</div>
 
-        <RegisterWalletGate onChange={setWallet}>
-          {() => null}
-        </RegisterWalletGate>
+        <RegisterWalletGate onChange={setWallet} />
 
         <div style={{ marginTop: 16, display: "grid", gap: 12 }}>
           <div>
@@ -376,6 +376,12 @@ export function RegisterView() {
                 <input type="radio" name="walletMode" value="generate" checked={walletMode === "generate"} onChange={() => setWalletMode("generate")} data-role="wallet-generate" />
                 <span>
                   <strong>Generate automatically</strong> — an EVM wallet is created for the agent at registration; the address and its private key are shown once below and the key is also stored server-side.
+                </span>
+              </label>
+              <label style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12 }}>
+                <input type="radio" name="walletMode" value="connected" checked={walletMode === "connected"} onChange={() => setWalletMode("connected")} data-role="wallet-connected" disabled={!wallet.connected} />
+                <span>
+                  <strong>Use the connected wallet</strong> — the agent wallet is the wallet you connected above{wallet.address ? <> (<code className="mono">{wallet.address}</code>)</> : null}; no separate key is generated.
                 </span>
               </label>
               <label style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12 }}>
