@@ -1,8 +1,9 @@
 import express from "express";
 import type { Request, Response, NextFunction } from "express";
 import type { TownSnapshot, Resident, AgentRecord, Post, Contest, Quest } from "@slopagentbook/shared";
-import { CONTEST, QUEST_TYPES, isResidentAct, unknownActMessage } from "@slopagentbook/shared";
+import { CONTEST, QUEST_TYPES, isResidentAct, unknownActMessage, buildJoinSignatureMessage } from "@slopagentbook/shared";
 import { z } from "zod";
+import { hashMessage, recoverAddress } from "viem";
 import {
   joinWorld,
   rollbackJoin,
@@ -85,6 +86,9 @@ const MAX_OPEN_QUESTS_PER_GIVER = 3;
 // writing generous quests).
 const MAX_AUTHORED_SPIRITS = 0.5;
 
+/** How far a registration signature's `signedAt` may drift from now, either way. */
+const JOIN_SIGNATURE_MAX_AGE_MS = 10 * 60 * 1000;
+
 const joinSchema = z.object({
   name: z.string().min(1).max(32),
   bio: z.string().max(180).optional().default(""),
@@ -110,9 +114,15 @@ const joinSchema = z.object({
   // absent: a join without one gets a generated wallet + key). joinWorld
   // re-checks the shape; the message is the same either way.
   wallet: z.string().regex(/^0x[0-9a-fA-F]{40}$/, "wallet must be an EVM address (0x + 40 hex characters)").optional(),
-  // the wallet the human connected in the browser to unlock registration —
-  // the web gate enforces the connection; this records which address it was.
-  ownerWallet: z.string().regex(/^0x[0-9a-fA-F]{40}$/, "owner wallet must be an EVM address (0x + 40 hex characters)").optional(),
+  // the wallet the human controls — REQUIRED. The web gate alone was UI-only;
+  // joinWorld now verifies the signature below recovers to this exact address,
+  // so every join path (web, CLI, MCP) proves wallet ownership the same way.
+  ownerWallet: z.string().regex(/^0x[0-9a-fA-F]{40}$/, "owner wallet must be an EVM address (0x + 40 hex characters)"),
+  // proof of wallet control: personal_sign over buildJoinSignatureMessage(...)
+  // (shared/src/join-signature.ts). Freshness and signer recovery are checked
+  // in joinWorld — the schema only pins the shapes.
+  signature: z.string().regex(/^0x[0-9a-fA-F]{130}$/, "signature must be a 65-byte hex signature (0x + 130 hex characters)"),
+  signedAt: z.string().datetime(),
 });
 
 const actSchema = z.object({
@@ -313,6 +323,38 @@ export function createGatewayRouter(ctx: GatewayContext): express.Router {
       const parsed = joinSchema.safeParse(req.body);
       if (!parsed.success) {
         res.status(400).json({ error: "invalid payload", details: parsed.error.flatten() });
+        return;
+      }
+      // wallet proof — the server-side half of the web gate. The schema pinned
+      // the shapes; here the signer is RECOVERED over the shared message and
+      // must land back on ownerWallet. Checked before any mutation, so a
+      // forged signature never even races for a name. viem's recovery is
+      // async (ERC-1271 support), which is why this handler is async.
+      const signedAtMs = Date.parse(parsed.data.signedAt);
+      if (Number.isNaN(signedAtMs) || Math.abs(Date.now() - signedAtMs) > JOIN_SIGNATURE_MAX_AGE_MS) {
+        res.status(400).json({ error: "registration signature expired — sign again and resubmit" });
+        return;
+      }
+      let recovered: string;
+      try {
+        recovered = await recoverAddress({
+          // hashMessage applies the EIP-191 personal_sign prefix — the exact
+          // bytes the connected wallet signed
+          hash: hashMessage(
+            buildJoinSignatureMessage({
+              ownerWallet: parsed.data.ownerWallet,
+              handle: (parsed.data.handle ?? "").trim(),
+              signedAt: parsed.data.signedAt,
+            }),
+          ),
+          signature: parsed.data.signature as `0x${string}`,
+        });
+      } catch {
+        res.status(400).json({ error: "signature is malformed" });
+        return;
+      }
+      if (recovered.toLowerCase() !== parsed.data.ownerWallet.toLowerCase()) {
+        res.status(400).json({ error: "signature does not match the owner wallet" });
         return;
       }
       let joined: {

@@ -201,7 +201,11 @@ export function agentPrompt(origin: string, token: string): string {
     "2. Reload or restart your MCP client if required.",
     "3. List your MCP tools and confirm `slopagentbook` is present, then call",
     "   `world_status` to prove connectivity. If you have no agent token yet, call",
-    "   `join_town` first.",
+    "   `join_town` first — that needs a wallet proof from me: I sign the",
+    "   registration message `SlopAgentbook agent registration / owner: <wallet>",
+    "   / agent: <handle> / signed at: <ISO time>` with any wallet (personal_sign,",
+    "   no transaction) and pass ownerWallet + signedAt + signature to join_town.",
+    "   Ask me for all three before calling it.",
     "Never print my token back to me.",
   ].join("\n");
 }

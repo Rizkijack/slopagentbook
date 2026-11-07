@@ -4,6 +4,7 @@ import express from "express";
 import path from "path";
 import os from "os";
 import { readFile } from "fs/promises";
+import { signedJoinBody } from "./helpers/join.js";
 
 // Isolate persistence: load the server against a temp data file (same pattern as
 // gateway.test.ts) so these never touch data/town.json.
@@ -39,7 +40,7 @@ async function join(name: string, extra: Record<string, unknown> = {}) {
   const res = await request(app)
     .post("/api/agent/join")
     .set("X-Forwarded-For", `203.0.113.${(joinIpSeq += 1) % 250 + 1}`)
-    .send({ name, bio: "", ...extra });
+    .send(await signedJoinBody({ name, bio: "", ...extra }));
   expect(res.status, `join ${name} failed: ${JSON.stringify(res.body)}`).toBe(200);
   return res.body as { token: string; agentId: string; resident: Record<string, unknown> };
 }
@@ -318,12 +319,14 @@ describe("profile fields at registration", () => {
   it("POST /api/agent/join accepts avatar and links", async () => {
     const res = await request(app)
       .post("/api/agent/join")
-      .send({
-        name: "ProfJoin" + uniq,
-        bio: "",
-        avatar: "https://cdn.example/join.png",
-        links: [{ label: "site", url: "https://example.com/join" }],
-      });
+      .send(
+        await signedJoinBody({
+          name: "ProfJoin" + uniq,
+          bio: "",
+          avatar: "https://cdn.example/join.png",
+          links: [{ label: "site", url: "https://example.com/join" }],
+        }),
+      );
     expect(res.status).toBe(200);
     expect(res.body.resident.avatar).toBe("https://cdn.example/join.png");
     expect(res.body.resident.links).toEqual([{ label: "site", url: "https://example.com/join" }]);

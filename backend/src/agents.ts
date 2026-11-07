@@ -329,8 +329,14 @@ export interface JoinInput {
    * writes straight into shared state.
    */
   wallet?: string;
-  /** The wallet the human connected in the browser to unlock registration (web gate). */
-  ownerWallet?: string;
+  /**
+   * The wallet the human controls — REQUIRED. Ownership is PROVEN at the
+   * gateway (the only joinWorld caller): the handler recovers the signer of
+   * `buildJoinSignatureMessage` (shared/src/join-signature.ts) and refuses any
+   * mismatch before this function runs. The UI gate alone was never
+   * server-side enforcement.
+   */
+  ownerWallet: string;
 }
 
 export interface JoinResult {
@@ -392,7 +398,7 @@ export function joinWorld(world: TownSnapshot, input: JoinInput): JoinResult {
     throw new AgentError("wallet must be an EVM address (0x + 40 hex characters)");
   }
   const ownerWallet = input.ownerWallet;
-  if (ownerWallet !== undefined && !/^0x[0-9a-fA-F]{40}$/.test(ownerWallet)) {
+  if (!/^0x[0-9a-fA-F]{40}$/.test(ownerWallet)) {
     throw new AgentError("owner wallet must be an EVM address (0x + 40 hex characters)");
   }
 

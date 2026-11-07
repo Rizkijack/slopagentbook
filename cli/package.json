@@ -11,7 +11,9 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@slopagentbook/mcp": "workspace:*"
+    "@slopagentbook/mcp": "workspace:*",
+    "@slopagentbook/shared": "workspace:^",
+    "viem": "^2.57.16"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

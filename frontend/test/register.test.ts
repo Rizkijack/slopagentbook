@@ -12,6 +12,7 @@ import {
 } from "../src/views/mcpInfo.js";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { buildJoinSignatureMessage } from "@slopagentbook/shared";
 
 // 09 §1 — register.test.ts: the `#/register` page. A step-by-step guide plus
 // four sections, English-only labels, the exact POST /api/agent/join payload,
@@ -20,18 +21,41 @@ import { resolve } from "node:path";
 // promises: memory only — never localStorage/sessionStorage, never console.
 
 // The wallet gate wraps the real wagmi/AppKit stack, which needs a live wallet
-// to flip state. Mock it so tests drive the connection state directly; the
-// component's own two-branch split is exercised by the build, not here.
-const gate = vi.hoisted(() => ({ state: { address: null as string | null, connected: false } }));
+// to flip state. Mock it so tests drive the connection state directly and
+// supply a stub signer (the real gate lifts signMessageAsync out of its
+// provider tree); the component's own two-branch split is exercised by the
+// build, not here.
+const gate = vi.hoisted(() => ({
+  state: { address: null as string | null, connected: false },
+  /** The stub signer; each test can replace or reject it. */
+  signImpl: null as null | ((args: { message: string }) => Promise<string>),
+  /** The last message the stub signer was asked to sign. */
+  lastMessage: null as string | null,
+}));
 vi.mock("../src/components/RegisterWalletGate.js", async () => {
   const { useEffect } = await import("react");
   return {
-    RegisterWalletGate: ({ onChange }: { onChange: (w: { address: string | null; connected: boolean }) => void }) => {
+    RegisterWalletGate: ({
+      onChange,
+      onSigner,
+    }: {
+      onChange: (w: { address: string | null; connected: boolean }) => void;
+      onSigner: (sign: (args: { message: string }) => Promise<`0x${string}`>) => void;
+    }) => {
       const state = gate.state;
       useEffect(() => {
         onChange(state);
         // eslint-disable-next-line react-hooks/exhaustive-deps -- the hoisted object is the dependency
       }, [state]);
+      useEffect(() => {
+        onSigner(async (args: { message: string }) => {
+          gate.lastMessage = args.message;
+          const impl = gate.signImpl;
+          if (!impl) throw new Error("no signer configured");
+          return (await impl(args)) as `0x${string}`;
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only lift
+      }, []);
       return null;
     },
   };
@@ -41,6 +65,8 @@ const RUN = Date.now().toString().slice(-7);
 const OWNER_HANDLE = `@ada${RUN}`;
 const TOKEN = "sabk_" + "a".repeat(48);
 const OWNER_WALLET = "0x22e1bb6df5f6ab543b463c2b7b8d9e0f1a2b3c4d";
+/** Well-formed 65-byte signature shape the stub signer returns. */
+const FIXTURE_SIG = "0x" + "ab".repeat(65);
 
 type StubRes = { ok: boolean; status: number; json(): Promise<unknown> };
 
@@ -99,6 +125,8 @@ beforeEach(() => {
   // the gate is connected by default: the register button unlocks, and the
   // locked-state tests flip this to a disconnected state before rendering
   gate.state = { address: OWNER_WALLET, connected: true };
+  gate.signImpl = async () => FIXTURE_SIG;
+  gate.lastMessage = null;
   act(() => {
     root.render(createElement(RegisterView, {}));
   });
@@ -171,14 +199,34 @@ describe("RegisterView submit", () => {
     expect(headers["Content-Type"]).toBe("application/json");
 
     const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
-    // generate mode (the default) sends no `wallet` — the backend creates one
-    expect(Object.keys(body).sort()).toEqual(["handle", "job", "name", "origin", "owner", "ownerWallet"]);
+    // generate mode (the default) sends no `wallet` — the backend creates one —
+    // but the wallet proof is mandatory: ownerWallet + signature + signedAt
+    expect(Object.keys(body).sort()).toEqual([
+      "handle",
+      "job",
+      "name",
+      "origin",
+      "owner",
+      "ownerWallet",
+      "signature",
+      "signedAt",
+    ]);
     expect(body.name).toBe("Iris Reg");
     expect(body.job).toBe("herder");
     expect(body.origin).toBe("web:register");
     expect(body.owner).toEqual({ name: "Ada Lovelace", handle: OWNER_HANDLE });
     expect(body.handle).toBe("@irisreg"); // auto-derived from the name until edited
     expect(body.ownerWallet).toBe(OWNER_WALLET); // the connected wallet gates + records the join
+    expect(body.signature).toBe(FIXTURE_SIG);
+    expect(body.signedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    // the signed message is exactly the shared builder's output for this payload
+    expect(gate.lastMessage).toBe(
+      buildJoinSignatureMessage({
+        ownerWallet: OWNER_WALLET,
+        handle: "@irisreg",
+        signedAt: body.signedAt as string,
+      }),
+    );
 
     const card = host.querySelector('[data-section="result"]');
     expect(card).not.toBeNull();
@@ -375,6 +423,19 @@ describe("RegisterView submit", () => {
     });
     expect(fetchMock).not.toHaveBeenCalled();
     expect(alertText()).toContain("Agent wallet must be an EVM address (0x + 40 hex characters).");
+  });
+
+  it("a declined wallet signature answers locally and never reaches the network", async () => {
+    fetchMock.mockResolvedValue(stub(200, {}));
+    gate.signImpl = async () => {
+      throw new Error("user rejected the signature request");
+    };
+
+    fillValid();
+    await submit();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(alertText()).toContain("Wallet signature is required to register.");
   });
 
   it("locks registration entirely until a wallet is connected", async () => {

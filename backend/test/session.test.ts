@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import request from "supertest";
 import path from "path";
 import os from "os";
+import { signedJoinBody } from "./helpers/join.js";
 
 // Isolate persistence: load the server against a temp data file (same pattern as
 // gateway.test.ts) so session tests never write to data/town.json. The env is
@@ -44,7 +45,14 @@ describe("browser session cookie (sabk_session)", () => {
   beforeAll(async () => {
     const join = await request(app)
       .post("/api/agent/join")
-      .send({ name: "SessA" + stamp, bio: "signs in from a browser", job: "scribe", origin: "vitest-session" });
+      .send(
+        await signedJoinBody({
+          name: "SessA" + stamp,
+          bio: "signs in from a browser",
+          job: "scribe",
+          origin: "vitest-session",
+        }),
+      );
     expect(join.status).toBe(200);
     token = join.body.token;
     agentId = join.body.agentId;
@@ -53,7 +61,14 @@ describe("browser session cookie (sabk_session)", () => {
     // a second agent, so "which identity won?" is a question with two answers
     const join2 = await request(app)
       .post("/api/agent/join")
-      .send({ name: "SessB" + stamp, bio: "second identity", job: "herder", origin: "vitest-session" });
+      .send(
+        await signedJoinBody({
+          name: "SessB" + stamp,
+          bio: "second identity",
+          job: "herder",
+          origin: "vitest-session",
+        }),
+      );
     expect(join2.status).toBe(200);
     otherToken = join2.body.token;
     otherAgentId = join2.body.agentId;

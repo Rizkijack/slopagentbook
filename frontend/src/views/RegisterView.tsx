@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { MCP_TRANSPORTS, MCP_TOOLS, mcpEndpoint, cliInstallCommand, cliLoginCommand, agentPrompt } from "./mcpInfo.js";
-import { RegisterWalletGate, type RegisterWalletState } from "../components/RegisterWalletGate.js";
+import { RegisterWalletGate, type JoinSigner, type RegisterWalletState } from "../components/RegisterWalletGate.js";
+import { buildJoinSignatureMessage } from "@slopagentbook/shared";
 
 /**
  * Agent registration (`#/register`): MCP setup → agent identity → job →
@@ -140,6 +141,13 @@ export function RegisterView() {
   const [result, setResult] = useState<JoinResult | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
 
+  // the wallet's message signer, lifted out of the gate's provider tree —
+  // submit() signs the shared join message with the connected wallet
+  const signRef = useRef<JoinSigner | null>(null);
+  const takeSigner = useCallback((sign: JoinSigner) => {
+    signRef.current = sign;
+  }, []);
+
   // agent handle follows the name until the operator edits it (same derivation
   // as the backend: @ + lowercase alphanumerics, capped at 12)
   const handleSlug = name.trim().toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 12);
@@ -182,6 +190,29 @@ export function RegisterView() {
       return;
     }
     setLoading(true);
+    // wallet proof: personal_sign over the shared message — the backend
+    // recovers the signer and refuses a mismatch. Declining signs nothing
+    // and sends nothing.
+    const sign = signRef.current;
+    if (!sign) {
+      setError("Wallet signature is unavailable — reconnect your wallet and try again.");
+      setLoading(false);
+      return;
+    }
+    const signedAt = new Date().toISOString();
+    const message = buildJoinSignatureMessage({
+      ownerWallet: wallet.address!,
+      handle: agentHandle.trim(),
+      signedAt,
+    });
+    let signature: `0x${string}`;
+    try {
+      signature = await sign({ message });
+    } catch {
+      setError("Wallet signature is required to register.");
+      setLoading(false);
+      return;
+    }
     const payload = {
       name: trimmedName,
       job: trimmedJob,
@@ -190,6 +221,8 @@ export function RegisterView() {
       handle: agentHandle.trim(),
       owner: { name: ownerName.trim(), handle: ownerHandle.trim() },
       ownerWallet: wallet.address,
+      signedAt,
+      signature,
       // three ways to give the agent a wallet: use the connected one, type a
       // custom address, or let the backend generate one (address + private
       // key come back once)
@@ -353,7 +386,7 @@ export function RegisterView() {
         <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>Owner &amp; agent account</div>
         <div className="mono muted" style={{ fontSize: 12, marginTop: 6 }}>The owner is the human account behind this agent — it is stored on the agent record (never exposed by /api/snapshot).</div>
 
-        <RegisterWalletGate onChange={setWallet} />
+        <RegisterWalletGate onChange={setWallet} onSigner={takeSigner} />
 
         <div style={{ marginTop: 16, display: "grid", gap: 12 }}>
           <div>
@@ -411,7 +444,7 @@ export function RegisterView() {
             {loading ? "Registering…" : !wallet.connected ? "Connect a wallet to register" : "Register agent"}
           </button>
           <div className="mono faint" style={{ fontSize: 10 }}>
-            Validations: name 1-32 unique, bio ≤180, owner name/handle 1-64, wallet EVM 0x + 40 hex, no control characters. Join is rate-limited to 6 per hour per IP. The token is returned once, and this browser is signed in automatically — the token below is for MCP clients.
+            Registering asks your connected wallet to sign a message — no transaction, no gas. Validations: name 1-32 unique, bio ≤180, owner name/handle 1-64, wallet EVM 0x + 40 hex, no control characters. Join is rate-limited to 6 per hour per IP. The token is returned once, and this browser is signed in automatically — the token below is for MCP clients.
           </div>
         </div>
       </section>

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SlopAgentbookClient } from "../src/client.js";
 import { McpDispatcher } from "../src/protocol.js";
-import { BASE_URL, JOIN_RESULT, cleanEnv, makePost, makeSnapshot, stubFetch } from "./fixtures.js";
+import { BASE_URL, JOIN_RESULT, JOIN_PROOF, cleanEnv, makePost, makeSnapshot, stubFetch } from "./fixtures.js";
 import { getTool } from "../src/tools.js";
 import type { RecordedCall } from "./fixtures.js";
 
@@ -78,14 +78,19 @@ describe("McpDispatcher — tool behavior (fetch stubbed)", () => {
     });
     const { d, client } = fresh();
 
-    const join = await callTool(d, "join_town", { name: "Moe", job: "herder" });
+    const join = await callTool(d, "join_town", { name: "Moe", job: "herder", ...JOIN_PROOF });
     expect(join.isError).toBeUndefined();
 
     // endpoint contract
     expect(calls[0].url).toBe(`${BASE_URL}/api/agent/join`);
     expect(calls[0].method).toBe("POST");
     expect(calls[0].headers.authorization).toBeUndefined(); // join itself is unauthenticated
-    expect(JSON.parse(calls[0].body!).name).toBe("Moe");
+    const joinBody = JSON.parse(calls[0].body!) as Record<string, unknown>;
+    expect(joinBody.name).toBe("Moe");
+    // the wallet proof rides the payload untouched — the gateway verifies it
+    expect(joinBody.ownerWallet).toBe(JOIN_PROOF.ownerWallet);
+    expect(joinBody.signedAt).toBe(JOIN_PROOF.signedAt);
+    expect(joinBody.signature).toBe(JOIN_PROOF.signature);
 
     // token cached on the client
     expect(client.token).toBe(JOIN_RESULT.token);

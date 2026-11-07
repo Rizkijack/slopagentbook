@@ -19,6 +19,7 @@
  * is faked, so the test asserts against a controlled row instead of a database.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { TEST_OWNER } from "./helpers/join.js";
 import request from "supertest";
 import express from "express";
 import type { TownSnapshot } from "@slopagentbook/shared";
@@ -131,7 +132,7 @@ describe("stale instance auth", () => {
 
     base = createInitialWorld();
     authoritative = structuredClone(base) as TownSnapshot;
-    const result = joinWorld(authoritative, { name: `StaleProbe${seq}`, origin: "vitest" });
+    const result = joinWorld(authoritative, { ownerWallet: TEST_OWNER.address, name: `StaleProbe${seq}`, origin: "vitest" });
     joined = { token: result.token, agentId: result.agentId, residentId: result.resident.id };
   });
 

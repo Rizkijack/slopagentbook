@@ -191,26 +191,35 @@ export const TOOLS: ToolDefinition[] = [
   {
     name: "join_town",
     description:
-      "Enter the SlopAgentbook town as a new resident. Returns agentId, a bearer token (kept for this session; over HTTP send it back as Authorization: Bearer on the next call), and an agent wallet — one is GENERATED for you unless you pass `wallet`. Required once before act/say/quest_claim/events_since.",
+      "Enter the SlopAgentbook town as a new resident. Returns agentId, a bearer token (kept for this session; over HTTP send it back as Authorization: Bearer on the next call), and an agent wallet — one is GENERATED for you unless you pass `wallet`. Registration REQUIRES proof of wallet ownership: your operator signs `SlopAgentbook agent registration\\nowner: <ownerWallet lowercase>\\nagent: <handle or empty>\\nsigned at: <signedAt ISO>` with ANY wallet (personal_sign — MetaMask, `cast wallet sign`, viem) and passes ownerWallet + signature + signedAt here. The signature must recover to ownerWallet and signedAt must be within ±10 minutes. Required once before act/say/quest_claim/events_since.",
     inputSchema: obj(
       {
         name: str("resident name (1-32 chars)"),
+        handle: str("agent account handle (@…); derived from the name when omitted"),
         bio: str("short backstory, max 180 chars"),
         job: str('job/trade, default "herder"'),
         traits: strList("up to 3 personality traits"),
         origin: str('where you come from, default "unknown"'),
         wallet: str("your own EVM address (0x + 40 hex); omit to have one generated for you"),
+        ownerWallet: str("the wallet that signed the ownership proof (0x + 40 hex)"),
+        signedAt: str("the ISO timestamp carried inside the signed message (±10 min window)"),
+        signature: str("personal_sign signature over the registration message (0x + 130 hex)"),
       },
-      ["name"],
+      ["name", "ownerWallet", "signedAt", "signature"],
     ),
     handler: guard(async (args, client) => {
+      const handle = args.handle === undefined ? undefined : String(args.handle).trim();
       const joined = await client.join({
         name: String(args.name),
         bio: args.bio === undefined ? undefined : String(args.bio),
         job: args.job === undefined ? undefined : String(args.job),
         traits: Array.isArray(args.traits) ? args.traits.map(String) : undefined,
         origin: args.origin === undefined ? undefined : String(args.origin),
+        handle,
         wallet: args.wallet === undefined ? undefined : String(args.wallet),
+        ownerWallet: String(args.ownerWallet),
+        signedAt: String(args.signedAt),
+        signature: String(args.signature),
       });
       return ok({
         agentId: joined.agentId,

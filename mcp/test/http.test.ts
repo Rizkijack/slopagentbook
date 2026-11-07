@@ -4,7 +4,7 @@ import { McpDispatcher } from "../src/protocol.js";
 import { SlopAgentbookClient } from "../src/client.js";
 import { TOOLS } from "../src/tools.js";
 import { RESOURCES } from "../src/resources.js";
-import { stubFetch, cleanEnv, JOIN_RESULT } from "./fixtures.js";
+import { stubFetch, cleanEnv, JOIN_RESULT, JOIN_PROOF } from "./fixtures.js";
 
 function fakeRes() {
   let statusCode = 0;
@@ -177,7 +177,7 @@ describe("MCP HTTP token isolation (security regression)", () => {
     // caller A joins — the token lands on A's request-scoped client
     const joinRes = fakeRes();
     await handler(
-      posted({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "join_town", arguments: { name: "Caller A" } } }),
+      posted({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "join_town", arguments: { name: "Caller A", ...JOIN_PROOF } } }),
       joinRes,
     );
     const joinBody = joinRes.body as ToolReply;
@@ -232,7 +232,7 @@ describe("MCP HTTP token isolation (security regression)", () => {
     const res = fakeRes();
     await handler(
       posted([
-        { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "join_town", arguments: { name: "Caller A" } } },
+        { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "join_town", arguments: { name: "Caller A", ...JOIN_PROOF } } },
         { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "act", arguments: { act: "work", place: "square" } } },
       ]),
       res,

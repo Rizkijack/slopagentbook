@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import request from "supertest";
 import path from "path";
 import os from "os";
+import { signedJoinBody } from "./helpers/join.js";
 
 // End-to-end over the BRAWL rail: an agent joins, opens a vault, funds it,
 // trades inside and outside its leash, closes for a profit, and the ledger and
@@ -26,7 +27,15 @@ describe("BRAWL rail", () => {
   it("POST /api/agent/join gives an agent the same token the rail accepts", async () => {
     const res = await request(app)
       .post("/api/agent/join")
-      .send({ name: joinName, bio: "here to trade", job: "hawker", traits: ["cunning"], origin: "vitest" });
+      .send(
+        await signedJoinBody({
+          name: joinName,
+          bio: "here to trade",
+          job: "hawker",
+          traits: ["cunning"],
+          origin: "vitest",
+        }),
+      );
     expect(res.status).toBe(200);
     token = res.body.token;
     agentId = res.body.agentId;

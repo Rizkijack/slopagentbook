@@ -3,6 +3,7 @@ import request from "supertest";
 import express from "express";
 import path from "path";
 import os from "os";
+import { signedJoinBody } from "./helpers/join.js";
 
 // Isolate persistence (same harness as gateway.test.ts): never touch data/town.json.
 const prevDataPath = process.env.DATA_PATH;
@@ -37,7 +38,7 @@ let residentId = "";
 async function join(): Promise<void> {
   const res = await request(app)
     .post("/api/agent/join")
-    .send({ name: joinName, bio: "here to take a job", job: "hand", origin: "vitest" });
+    .send(await signedJoinBody({ name: joinName, bio: "here to take a job", job: "hand", origin: "vitest" }));
   expect(res.status).toBe(200);
   token = res.body.token;
   residentId = res.body.resident.id;

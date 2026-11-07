@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import request from "supertest";
 import express from "express";
+import { signedJoinBody } from "./helpers/join.js";
 
 // Mock ONLY saveAtomically so the join persist always fails — the rest of persist
 // (saveDebounced, loadWithRecovery) stays real. This exercises the full gateway
@@ -39,7 +40,7 @@ describe("gateway join rollback", () => {
 
     const res = await request(app)
       .post("/api/agent/join")
-      .send({ name, parent: parent.id, bio: "will not persist", origin: "vitest" });
+      .send(await signedJoinBody({ name, parent: parent.id, bio: "will not persist", origin: "vitest" }));
 
     expect(res.status).toBe(500);
     expect(res.body.error).toBe("persist failed");
@@ -67,7 +68,7 @@ describe("gateway join rollback", () => {
 
     const res = await request(app)
       .post("/api/agent/join")
-      .send({ name, parent: parent.id, bio: "owner must roll back too", origin: "vitest", handle, owner });
+      .send(await signedJoinBody({ name, parent: parent.id, bio: "owner must roll back too", origin: "vitest", handle, owner }));
 
     expect(res.status).toBe(500);
     expect(res.body.error).toBe("persist failed");

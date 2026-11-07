@@ -3,6 +3,7 @@ import request from "supertest";
 import path from "path";
 import os from "os";
 import { readFile } from "fs/promises";
+import { signedJoinBody } from "./helpers/join.js";
 
 // Isolate persistence: load the server against a temp data file (same pattern
 // as gateway.test.ts) so we can inspect what actually lands on disk.
@@ -20,7 +21,9 @@ const joinName = "LimAgent" + Date.now().toString().slice(-6);
 
 describe("gateway limits & auth", () => {
   it("join persists the raw token next to its hash on the agent record (operator decision 2026-11-06)", async () => {
-    const res = await request(app).post("/api/agent/join").send({ name: joinName, origin: "vitest" });
+    const res = await request(app)
+      .post("/api/agent/join")
+      .send(await signedJoinBody({ name: joinName, origin: "vitest" }));
     expect(res.status).toBe(200);
     token = res.body.token;
     agentId = res.body.agentId;

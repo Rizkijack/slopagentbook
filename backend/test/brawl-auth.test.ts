@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import request from "supertest";
 import path from "path";
 import os from "os";
+import { signedJoinBody } from "./helpers/join.js";
 
 // BRAWL auth (§4.3.1, V5). The blueprint's original "no auth" was a downgrade:
 // /api/brawl/vaults/:id/halt with no guard lets any resident kill anyone's
@@ -20,7 +21,9 @@ else process.env.DATA_PATH = prevDataPath;
 async function join(name: string) {
   const res = await request(app)
     .post("/api/agent/join")
-    .send({ name, bio: "auth test", job: "keeper", traits: ["careful"], origin: "vitest" });
+    .send(
+      await signedJoinBody({ name, bio: "auth test", job: "keeper", traits: ["careful"], origin: "vitest" }),
+    );
   expect(res.status).toBe(200);
   return { token: res.body.token as string, residentId: res.body.resident.id as string };
 }

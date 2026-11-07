@@ -29,6 +29,7 @@
  * throws rather than passing unnoticed.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { TEST_OWNER } from "./helpers/join.js";
 import request from "supertest";
 import express from "express";
 import { mkdtempSync, rmSync, writeFileSync } from "fs";
@@ -253,7 +254,7 @@ beforeEach(() => {
 
   base = createInitialWorld();
   authoritative = structuredClone(base) as TownSnapshot;
-  const result = joinWorld(authoritative, { name: `StaleRail${seq}`, origin: "vitest" });
+  const result = joinWorld(authoritative, { ownerWallet: TEST_OWNER.address, name: `StaleRail${seq}`, origin: "vitest" });
   joined = { token: result.token, agentId: result.agentId, residentId: result.resident.id };
 });
 

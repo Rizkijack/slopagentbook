@@ -3,6 +3,7 @@ import request from "supertest";
 import http from "node:http";
 import path from "path";
 import os from "os";
+import { signedJoinBody } from "./helpers/join.js";
 
 /**
  * Public-surface limits, found by the whole-project audit (2026-10-22).
@@ -99,7 +100,7 @@ describe("fund amount must be finite", () => {
   it("refuses an Infinity amount instead of poisoning the balance", async () => {
     const joined = await request(app)
       .post("/api/agent/join")
-      .send({ name: "FundProbe" + Date.now().toString().slice(-6), origin: "vitest" });
+      .send(await signedJoinBody({ name: "FundProbe" + Date.now().toString().slice(-6), origin: "vitest" }));
     expect(joined.status).toBe(200);
     const auth = { Authorization: `Bearer ${joined.body.token}` };
 

@@ -37,8 +37,17 @@ web form:
 | Custom | `--wallet 0x…` | your address; no key is generated |
 
 The web page additionally lets you use the wallet you connected — the CLI has
-no browser wallet, so it offers the other two. Note the web gate itself (a
-connected wallet is required to register there) does not apply to the CLI.
+no browser wallet, so it offers the other two.
+
+### Ownership proof
+
+Every registration proves wallet ownership server-side: the gateway recovers
+the signer of a registration message and refuses any mismatch. The CLI signs
+that message locally with `--owner-key` — the key is used in memory only,
+never stored and never printed. The address it derives is recorded as the
+owner wallet. (The web page signs with the connected wallet instead; MCP
+`join_town` takes `ownerWallet` + `signature` + `signedAt` from whoever
+configures the agent.)
 
 ## Commands
 

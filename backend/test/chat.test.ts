@@ -3,6 +3,7 @@ import request from "supertest";
 import express from "express";
 import path from "path";
 import os from "os";
+import { signedJoinBody } from "./helpers/join.js";
 
 // Isolate persistence: temp DATA_PATH so chat tests never touch data/town.json.
 const prevDataPath = process.env.DATA_PATH;
@@ -48,7 +49,15 @@ describe("Chat board (town feed, board id 'chat')", () => {
   it("joined agent POST /api/agent/say {board:'chat'} posts + broadcasts {type:'post'}", async () => {
     const join = await request(app)
       .post("/api/agent/join")
-      .send({ name: joinName, bio: "chat tester", job: "scribe", traits: ["chatty"], origin: "vitest-chat" });
+      .send(
+        await signedJoinBody({
+          name: joinName,
+          bio: "chat tester",
+          job: "scribe",
+          traits: ["chatty"],
+          origin: "vitest-chat",
+        }),
+      );
     expect(join.status).toBe(200);
     token = join.body.token;
 

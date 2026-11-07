@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { TownSnapshot } from "@slopagentbook/shared";
 import { joinWorld, verifyToken, AgentError } from "../src/agents.js";
 import { createInitialWorld } from "../src/world.js";
+import { TEST_OWNER } from "./helpers/join.js";
 
 /**
  * joinWorld and POST /api/fork must apply the same rule: validate the payload
@@ -24,7 +25,7 @@ describe("joinWorld validates input before capacity", () => {
     const world = fullWorld();
     const taken = world.herd[0]!.name;
 
-    expect(() => joinWorld(world, { name: taken, origin: "vitest" })).toThrow(/taken/);
+    expect(() => joinWorld(world, { ownerWallet: TEST_OWNER.address, name: taken, origin: "vitest" })).toThrow(/taken/);
     expect(world.herd).toHaveLength(world.config.maxHerd); // nothing was added
   });
 
@@ -32,7 +33,7 @@ describe("joinWorld validates input before capacity", () => {
     const world = fullWorld();
 
     expect(() =>
-      joinWorld(world, { name: freshName("Jp"), parent: "nonexistent", origin: "vitest" }),
+      joinWorld(world, { ownerWallet: TEST_OWNER.address, name: freshName("Jp"), parent: "nonexistent", origin: "vitest" }),
     ).toThrow(/parent/);
     expect(world.herd[0]!.forks ?? 0).toBe(0); // no forks++ on a rejected join
     expect(world.herd).toHaveLength(world.config.maxHerd);
@@ -41,7 +42,7 @@ describe("joinWorld validates input before capacity", () => {
   it("still reports the capacity error for an otherwise valid payload", () => {
     const world = fullWorld();
 
-    expect(() => joinWorld(world, { name: freshName("Jc"), origin: "vitest" })).toThrow(/pasture/);
+    expect(() => joinWorld(world, { ownerWallet: TEST_OWNER.address, name: freshName("Jc"), origin: "vitest" })).toThrow(/pasture/);
     expect(world.herd).toHaveLength(world.config.maxHerd);
     expect(world.agents ?? []).toHaveLength(0); // no token/record leaked on reject
   });
@@ -49,7 +50,7 @@ describe("joinWorld validates input before capacity", () => {
   it("rejects with AgentError, the type the gateway turns into a 400", () => {
     const world = fullWorld();
 
-    expect(() => joinWorld(world, { name: freshName("Je"), origin: "vitest" })).toThrow(
+    expect(() => joinWorld(world, { ownerWallet: TEST_OWNER.address, name: freshName("Je"), origin: "vitest" })).toThrow(
       AgentError,
     );
   });
@@ -58,7 +59,7 @@ describe("joinWorld validates input before capacity", () => {
     const world = createInitialWorld(); // fixture is nowhere near maxHerd
     world.config.maxHerd = world.herd.length + 1;
 
-    const joined = joinWorld(world, { name: freshName("Jr"), origin: "vitest" });
+    const joined = joinWorld(world, { ownerWallet: TEST_OWNER.address, name: freshName("Jr"), origin: "vitest" });
 
     expect(joined.token).toBeTruthy();
     expect(world.herd).toHaveLength(world.config.maxHerd);
@@ -86,7 +87,7 @@ describe("verifyToken on a malformed registry row", () => {
 
   it("still resolves a valid record that sits after the bad row", () => {
     const world = createInitialWorld();
-    const joined = joinWorld(world, { name: freshName("Jgood"), origin: "vitest" });
+    const joined = joinWorld(world, { ownerWallet: TEST_OWNER.address, name: freshName("Jgood"), origin: "vitest" });
     // prepend the malformed row, so the scan has to survive it to reach the real one
     world.agents = [{ id: "ag_bad", residentId: world.herd[0]!.id } as never, ...world.agents!];
 

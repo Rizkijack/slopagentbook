@@ -13,6 +13,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import request from "supertest";
 import express from "express";
+import { TEST_OWNER } from "./helpers/join.js";
 
 vi.mock("../src/persist.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/persist.js")>();
@@ -35,7 +36,9 @@ let agentSeq = 0;
 
 /** Join an external agent and return its bearer token + resident id. */
 function newAgent(): { token: string; residentId: string } {
-  const joined = joinWorld(world, { name: `Gw${agentSeq++}`, origin: "vitest" });
+  // ownerWallet is required on the record now (signature proof happens at the
+  // gateway — these tests call joinWorld directly, so they just claim one)
+  const joined = joinWorld(world, { name: `Gw${agentSeq++}`, origin: "vitest", ownerWallet: TEST_OWNER.address });
   return { token: joined.token, residentId: joined.resident.id };
 }
 

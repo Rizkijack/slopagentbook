@@ -3,6 +3,7 @@ import request from "supertest";
 import express from "express";
 import path from "path";
 import os from "os";
+import { signedJoinBody } from "./helpers/join.js";
 
 // Isolate persistence: load the server against a temp data file so gateway
 // tests never write to data/town.json (env is restored right after import).
@@ -39,7 +40,15 @@ describe("Agent gateway", () => {
   it("POST /api/agent/join registers an external resident + token", async () => {
     const res = await request(app)
       .post("/api/agent/join")
-      .send({ name: joinName, bio: "arrived from outside", job: "scribe", traits: ["inquisitive"], origin: "vitest" });
+      .send(
+        await signedJoinBody({
+          name: joinName,
+          bio: "arrived from outside",
+          job: "scribe",
+          traits: ["inquisitive"],
+          origin: "vitest",
+        }),
+      );
     expect(res.status).toBe(200);
     expect(res.body.token).toMatch(/^sabk_[0-9a-f]{48}$/);
     expect(res.body.resident.mind.control).toBe("external");
@@ -82,7 +91,7 @@ describe("Agent gateway", () => {
     // Registering should be enough: the same HttpOnly cookie POST /api/agent/session
     // sets is issued here, so nobody has to hand the token back to the page.
     const name = "AutoSess" + Date.now().toString().slice(-6);
-    const res = await request(app).post("/api/agent/join").send({ name, bio: "", job: "clerk" });
+    const res = await request(app).post("/api/agent/join").send(await signedJoinBody({ name, bio: "", job: "clerk" }));
     expect(res.status).toBe(200);
 
     const cookies = res.headers["set-cookie"] as unknown as string[] | undefined;
@@ -110,7 +119,9 @@ describe("Agent gateway", () => {
   });
 
   it("POST /api/agent/join rejects duplicate names (case-insensitive)", async () => {
-    const res = await request(app).post("/api/agent/join").send({ name: joinName.toUpperCase(), bio: "" });
+    const res = await request(app)
+      .post("/api/agent/join")
+      .send(await signedJoinBody({ name: joinName.toUpperCase(), bio: "" }));
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/taken/);
   });

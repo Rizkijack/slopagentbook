@@ -23,8 +23,15 @@ export interface JoinPayload {
    * automatically at registration (address + private key come back in the result).
    */
   wallet?: string;
-  /** the wallet the human connected in the browser (web registration gate) */
-  ownerWallet?: string;
+  /**
+   * The wallet that proves ownership — REQUIRED. The gateway recovers the
+   * signer of the shared join-signature message and refuses any mismatch.
+   */
+  ownerWallet: string;
+  /** ISO timestamp carried inside the signed message (freshness window: ±10 min). */
+  signedAt: string;
+  /** personal_sign output over buildJoinSignatureMessage (0x + 130 hex). */
+  signature: string;
 }
 
 export interface JoinResult {

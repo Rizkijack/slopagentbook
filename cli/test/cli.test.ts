@@ -7,6 +7,8 @@ import { coerceArgs, COMMANDS, makeClient, resolveToken, resolveUrl, CommandErro
 import { DEFAULT_URL, clearIdentity, configPath, loadConfig, saveConfig } from "../src/config.js";
 import { TOOL_NAMES, getTool } from "@slopagentbook/mcp/tools";
 import { SlopAgentbookClient, GatewayError } from "@slopagentbook/mcp/client";
+import { privateKeyToAccount } from "viem/accounts";
+import { buildJoinSignatureMessage } from "@slopagentbook/shared";
 
 // The CLI is a shim: parser, coercion, config store, command table and one
 // e2e command run against a stubbed gateway. The tool handlers themselves are
@@ -231,6 +233,10 @@ describe("gateway errors surface as command errors", () => {
 });
 
 describe("join", () => {
+  /** Deterministic throwaway key the tests sign with — never a wallet anyone holds. */
+  const OWNER_KEY = "0x1010101010101010101010101010101010101010101010101010101010101010";
+  const OWNER_ADDR = privateKeyToAccount(OWNER_KEY as `0x${string}`).address;
+
   it("sends owner fields the web form sends, saves the token, never prints it", async () => {
     const calls: Array<{ url: string; init: RequestInit }> = [];
     globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
@@ -246,19 +252,49 @@ describe("join", () => {
     const client = makeClient({ url: "http://gw:8" });
     const out = await COMMANDS["join"]!.run([], {
       client,
-      flags: { name: "Cli Test", "owner-name": "Ada", "owner-handle": "@ada", job: "herder" },
+      flags: { name: "Cli Test", "owner-name": "Ada", "owner-handle": "@ada", job: "herder", "owner-key": OWNER_KEY },
     });
 
     expect(calls[0]!.url).toBe("http://gw:8/api/agent/join");
-    const body = JSON.parse(String(calls[0]!.init.body)) as Record<string, unknown>;
+    const body = JSON.parse(String(calls[0]!.init.body)) as Record<string, string>;
     expect(body.name).toBe("Cli Test");
     expect(body.owner).toEqual({ name: "Ada", handle: "@ada" });
     expect(body.origin).toBe("cli");
 
+    // the ownership proof: signature recovers to --owner-key's address over the
+    // shared message — the exact check the gateway performs
+    expect(body.ownerWallet).toBe(OWNER_ADDR);
+    expect(body.signature).toMatch(/^0x[0-9a-fA-F]{130}$/);
+    expect(body.signedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    const { hashMessage, recoverAddress } = await import("viem");
+    const recovered = await recoverAddress({
+      hash: hashMessage(
+        buildJoinSignatureMessage({
+          ownerWallet: body.ownerWallet,
+          handle: (body.handle ?? "").trim(),
+          signedAt: body.signedAt,
+        }),
+      ),
+      signature: body.signature as `0x${string}`,
+    });
+    expect(recovered.toLowerCase()).toBe(OWNER_ADDR.toLowerCase());
+
+    expect(out).toContain(`owner wallet · ${OWNER_ADDR}`);
     expect(out).toContain("joined the town");
     expect(out).not.toContain(TOKEN);
+    expect(out).not.toContain(OWNER_KEY); // the signing key never comes back
     const saved = JSON.parse(readFileSync(configPath(), "utf8")) as Record<string, string>;
     expect(saved.token).toBe(TOKEN);
+  });
+
+  it("refuses to join without --owner-key", async () => {
+    const client = makeClient({ url: "http://gw:9" });
+    await expect(
+      COMMANDS["join"]!.run([], {
+        client,
+        flags: { name: "Cli Test", "owner-name": "Ada", "owner-handle": "@ada" },
+      }),
+    ).rejects.toThrow(/--owner-key/);
   });
 
   it("forwards --wallet as the agent wallet and never prints a key for a custom one", async () => {
@@ -278,7 +314,13 @@ describe("join", () => {
     const client = makeClient({ url: "http://gw:10" });
     const out = await COMMANDS["join"]!.run([], {
       client,
-      flags: { name: "Cli Test", "owner-name": "Ada", "owner-handle": "@ada", wallet: WALLET },
+      flags: {
+        name: "Cli Test",
+        "owner-name": "Ada",
+        "owner-handle": "@ada",
+        wallet: WALLET,
+        "owner-key": OWNER_KEY,
+      },
     });
 
     const body = JSON.parse(String(calls[0]!.init.body)) as Record<string, unknown>;
@@ -303,7 +345,7 @@ describe("join", () => {
     const client = makeClient({ url: "http://gw:11" });
     const out = await COMMANDS["join"]!.run([], {
       client,
-      flags: { name: "Cli Test", "owner-name": "Ada", "owner-handle": "@ada" },
+      flags: { name: "Cli Test", "owner-name": "Ada", "owner-handle": "@ada", "owner-key": OWNER_KEY },
     });
 
     expect(out).toContain(`agent wallet · ${WALLET} (generated)`);

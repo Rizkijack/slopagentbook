@@ -19,6 +19,7 @@
  *    `Date.now()`, which is a different day entirely.
  */
 import { describe, it, expect, beforeEach } from "vitest";
+import { TEST_OWNER } from "./helpers/join.js";
 import { CONTEST, CONTEST_VENUES, SEASON, contestsPerDay, dayOfYear } from "@slopagentbook/shared";
 import type { Contest, Season, TownSnapshot } from "@slopagentbook/shared";
 import { createInitialWorld } from "../src/world.js";
@@ -58,7 +59,7 @@ let agentSeq = 0;
 function addAgents(n: number): string[] {
   const ids: string[] = [];
   for (let i = 0; i < n; i++) {
-    const joined = joinWorld(world, { name: `Contender${agentSeq++}`, origin: "vitest" });
+    const joined = joinWorld(world, { ownerWallet: TEST_OWNER.address, name: `Contender${agentSeq++}`, origin: "vitest" });
     ids.push(joined.resident.id);
   }
   return ids;

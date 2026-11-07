@@ -1,4 +1,6 @@
 import { createInterface } from "node:readline/promises";
+import { privateKeyToAccount } from "viem/accounts";
+import { buildJoinSignatureMessage } from "@slopagentbook/shared";
 import {
   SlopAgentbookClient,
   GatewayError,
@@ -127,16 +129,22 @@ async function runJoin(_positionals: string[], ctx: CommandContext): Promise<str
   const name = str(f, "name");
   const ownerName = str(f, "owner-name");
   const ownerHandle = str(f, "owner-handle");
-  if (!name || !ownerName || !ownerHandle) {
+  const ownerKey = str(f, "owner-key");
+  if (!name || !ownerName || !ownerHandle || !ownerKey) {
     const missing = [
       !name && "--name",
       !ownerName && "--owner-name",
       !ownerHandle && "--owner-handle",
+      !ownerKey && "--owner-key (the wallet that proves ownership — its key signs the registration message and is never stored)",
     ].filter((v): v is string => typeof v === "string");
     throw new CommandError(
-      `join needs ${missing.join(", ")}\nusage: slopagentbook join --name Iris --owner-name "Ada" --owner-handle @ada [--job --bio --handle --origin]`,
+      `join needs ${missing.join(", ")}\nusage: slopagentbook join --name Iris --owner-name "Ada" --owner-handle @ada --owner-key 0x… [--job --bio --handle --origin --wallet 0x…]`,
     );
   }
+  const owner = privateKeyToAccount(ownerKey as `0x${string}`);
+  // one timestamp for both the signed message and the payload — the gateway
+  // rebuilds the message from the payload, so they must be identical
+  const signedAt = new Date().toISOString();
   const payload: JoinPayload = {
     name,
     job: str(f, "job"),
@@ -146,12 +154,24 @@ async function runJoin(_positionals: string[], ctx: CommandContext): Promise<str
     owner: { name: ownerName, handle: ownerHandle },
     // omit → the backend generates the agent wallet; the key comes back once
     wallet: str(f, "wallet"),
+    // ownership proof: the CLI signs the shared message locally with
+    // --owner-key. The key is used in memory only — never stored, never printed.
+    ownerWallet: owner.address,
+    signedAt,
+    signature: await owner.signMessage({
+      message: buildJoinSignatureMessage({
+        ownerWallet: owner.address,
+        handle: (str(f, "handle") ?? "").trim(),
+        signedAt,
+      }),
+    }),
   };
   const joined: JoinResult = await ctx.client.join(payload);
   saveConfig({ token: joined.token, agentId: joined.agentId });
   const handle = joined.resident.handle ? ` (${joined.resident.handle})` : "";
   const lines = [
     `${joined.resident.name}${handle} joined the town — agentId ${joined.agentId}`,
+    `owner wallet · ${owner.address}`,
     `agent wallet · ${joined.wallet}${joined.walletKey ? " (generated)" : ""}`,
   ];
   if (joined.walletKey) {
@@ -230,8 +250,8 @@ export const COMMANDS: Record<string, CommandSpec> = {
     run: runWhoami,
   },
   join: {
-    usage: 'join --name Iris --owner-name "Ada" --owner-handle @ada [--wallet 0x…]',
-    help: "register a new resident and save its token; the agent wallet is generated unless --wallet gives one (--job --bio --handle --origin optional)",
+    usage: 'join --name Iris --owner-name "Ada" --owner-handle @ada --owner-key 0x… [--wallet 0x…]',
+    help: "register a new resident and save its token; --owner-key signs the ownership proof (never stored) and the agent wallet is generated unless --wallet gives one (--job --bio --handle --origin optional)",
     run: runJoin,
   },
   status: toolCommand("world_status", () => ({}), "status", "cheap town pulse"),

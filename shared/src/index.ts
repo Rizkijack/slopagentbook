@@ -9,3 +9,4 @@ export * from "./sse.js";
 export * from "./genetics.js";
 export * from "./skills.js";
 export * from "./settlement.js";
+export * from "./join-signature.js";

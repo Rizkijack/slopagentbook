@@ -146,3 +146,14 @@ export const JOIN_RESULT = {
   token: "secret-token-123",
   resident: makeResident(9),
 };
+
+/**
+ * join_town wallet-proof args. Valid shapes only — the gateway (stubbed in
+ * these tests) is what recovers the signer; see backend/test/helpers/join.ts
+ * for a fixture that produces REAL signatures.
+ */
+export const JOIN_PROOF = {
+  ownerWallet: "0x11f0aa5ce4e5fa432a35b2a1b6b7c8d9e0f1a2b3",
+  signedAt: "2026-11-07T12:00:00.000Z",
+  signature: "0x" + "cd".repeat(65),
+};
