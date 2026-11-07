@@ -158,7 +158,7 @@ export function WorldCanvas({
   onFollowChange,
 }: {
   snapshot: {
-    herd: Array<{ id: string; name: string; handle: string; genes: string; mind: { doing: { place: string; act: string } }; born: number }>;
+    herd: Array<{ id: string; name: string; handle: string; genes: string; mind: { doing: { place: string } }; born: number }>;
     contests?: Contest[];
   };
   onPick?: (id: string) => void;
@@ -173,6 +173,8 @@ export function WorldCanvas({
   const onPickRef = useRef(onPick);
   const onFollowChangeRef = useRef(onFollowChange);
   const mmRef = useRef<HTMLCanvasElement>(null);
+  const mapWrapRef = useRef<HTMLDivElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   /**
    * Which parcel the rail is pointing at, read by the minimap every frame.
    *
@@ -224,6 +226,27 @@ export function WorldCanvas({
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, [timed]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const sync = () => setIsFullscreen(document.fullscreenElement === mapWrapRef.current);
+    sync();
+    document.addEventListener("fullscreenchange", sync);
+    return () => document.removeEventListener("fullscreenchange", sync);
+  }, []);
+
+  const toggleFullscreen = async () => {
+    if (typeof document === "undefined") return;
+    try {
+      if (document.fullscreenElement === mapWrapRef.current) {
+        await document.exitFullscreen?.();
+      } else if (mapWrapRef.current?.requestFullscreen) {
+        await mapWrapRef.current.requestFullscreen();
+      }
+    } catch {
+      // Fullscreen can be blocked by browser policy; keep the map usable.
+    }
+  };
 
   const contest = useMemo(
     () => pickContest(snapshot.contests, forcedId, now),
@@ -606,15 +629,28 @@ export function WorldCanvas({
 
   return (
     <div>
-    <div style={{ position: "relative" }}>
+    <div
+      ref={mapWrapRef}
+      className={`town-map${isFullscreen ? " is-fullscreen" : ""}`}
+      style={{ position: "relative" }}
+    >
       <canvas
         ref={canvasRef}
         className="town"
         tabIndex={0}
         aria-label="Town map. Drag or use arrow keys to pan, scroll or pinch to zoom, click a resident to follow."
-        style={{ width: "100%", height: "560px", display: "block", cursor: "grab" }}
+        style={{ width: "100%", height: isFullscreen ? "100%" : "560px", display: "block", cursor: "grab" }}
       />
       <div style={{ position: "absolute", top: 8, right: 8, display: "flex", gap: 6 }}>
+        <button
+          className="btn btn-ghost"
+          style={{ padding: "6px 10px", fontSize: 11 }}
+          onClick={() => void toggleFullscreen()}
+          aria-pressed={isFullscreen}
+          aria-label={isFullscreen ? "Exit fullscreen map" : "Enter fullscreen map"}
+        >
+          {isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+        </button>
         <button className="btn btn-ghost" style={{ padding: "6px 10px", fontSize: 11 }} onClick={() => xfRef.current?.resetCam()}>Reset</button>
         <button className="btn btn-ghost" style={{ padding: "6px 10px", fontSize: 11 }} onClick={() => xfRef.current?.setFollow(null)}>Free Cam</button>
       </div>

@@ -343,6 +343,24 @@ canvas.town {
   transition: border-color 0.28s ease, background-color 0.28s ease;
 }
 
+.town-map {
+  background: var(--paper-2);
+}
+
+.town-map.is-fullscreen,
+.town-map:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  padding: 8px;
+  background: var(--paper);
+}
+
+.town-map.is-fullscreen canvas.town,
+.town-map:fullscreen canvas.town {
+  height: calc(100vh - 16px);
+  border-width: 1px;
+}
+
 canvas.town:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 
 /* The overview map and the district rail.
