@@ -158,7 +158,7 @@ export function WorldCanvas({
   onFollowChange,
 }: {
   snapshot: {
-    herd: Array<{ id: string; name: string; handle: string; genes: string; mind: { doing: { place: string } }; born: number }>;
+    herd: Array<{ id: string; name: string; handle: string; genes: string; mind: { doing: { place: string; act: string } }; born: number }>;
     contests?: Contest[];
   };
   onPick?: (id: string) => void;
