@@ -1,5 +1,5 @@
 import type { TownSnapshot, Quest, QuestType, QuestActionType, QuestRewardInfo } from "@slopagentbook/shared";
-import { QUEST_ACTIONS, QUEST_ACTIVE_TARGET, QUEST_BOARD_CAP } from "@slopagentbook/shared";
+import { QUEST_ACTIONS, QUEST_ACTIVE_TARGET, QUEST_BOARD_CAP, QUEST_REWARD_USD, QUEST_REWARD_MOCK, QUEST_REWARD_CURRENCY } from "@slopagentbook/shared";
 import { LOCATIONS } from "./locations.js";
 
 export { QUEST_ACTIVE_TARGET, QUEST_BOARD_CAP };
@@ -21,6 +21,10 @@ export function questRewardInfo(config: TownSnapshot["config"]): QuestRewardInfo
       mint: config.tokenAddress || null,
       from: config.treasuryAddress || null,
     },
+    usd: QUEST_REWARD_USD,
+    mock: QUEST_REWARD_MOCK,
+    currency: QUEST_REWARD_CURRENCY,
+    mockUsd: { usd: QUEST_REWARD_USD, currency: QUEST_REWARD_CURRENCY, mock: true },
   };
 }
 

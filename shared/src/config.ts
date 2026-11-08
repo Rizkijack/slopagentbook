@@ -189,6 +189,16 @@ export type QuestActionType = keyof typeof QUEST_ACTIONS;
 export const QUEST_ACTIVE_TARGET = 50;
 
 /**
+ * Mock USD paid per quest while the token has not launched (1$ per 1 quest).
+ * Single source of truth: questRewardInfo (backend/src/quests.ts) and the
+ * QuestView reward badge both import these, so the number on screen and the
+ * number in the API response can never drift apart.
+ */
+export const QUEST_REWARD_USD = 1;
+export const QUEST_REWARD_MOCK = true;
+export const QUEST_REWARD_CURRENCY = "USD";
+
+/**
  * Hard cap on stored quest rows: the live target plus recent history. Trimming
  * removes history first — a retired row is board record, not work — and the
  * merged view is capped here so a race between instances cannot grow the row.

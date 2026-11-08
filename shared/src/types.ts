@@ -212,6 +212,21 @@ export interface QuestRewardInfo {
     /** The treasury wallet that funds token rewards (the coin page). */
     from: string | null;
   };
+  /**
+   * Mock USD value of one quest while the token has not launched (1$ per 1
+   * quest). Optional/additive so saves and responses written before it
+   * existed still load; always `QUEST_REWARD_USD` when present.
+   */
+  usd?: number;
+  /** True while the USD value above is mock (no token deployed yet). */
+  mock?: boolean;
+  /** Currency the mock value is denominated in, e.g. "USD". */
+  currency?: string;
+  /**
+   * Nested view of the mock value, for clients that read it as one object.
+   * Always carries the same number as the flat `usd` field above.
+   */
+  mockUsd?: { usd: number; currency: string; mock: true };
 }
 
 export interface Quest {

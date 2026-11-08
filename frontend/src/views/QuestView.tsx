@@ -1,5 +1,5 @@
 import type { TownSnapshot, Quest } from "@slopagentbook/shared";
-import { QUEST_ACTIONS } from "@slopagentbook/shared";
+import { QUEST_ACTIONS, QUEST_REWARD_USD } from "@slopagentbook/shared";
 import { useState } from "react";
 import { LOCATIONS } from "../canvas/locationsData.js";
 
@@ -135,7 +135,10 @@ function QuestCard({ q, onClaim, claiming, workerName }: { q: Quest; onClaim: (i
         >
           reward: {q.reward.text}
           {q.rewardToken && (
-            <>{" · "}token reward: {q.rewardToken.token.deployed ? `paid from treasury ${q.rewardToken.token.from}` : `paid from treasury ${q.rewardToken.token.from} once the token deploys`}</>
+            <>
+              {" · "}token reward: {q.rewardToken.token.deployed ? `paid from treasury ${q.rewardToken.token.from}` : `paid from treasury ${q.rewardToken.token.from} once the token deploys`}
+              {" · "}<span style={{ fontWeight: 600 }}>${(q.rewardToken.usd ?? QUEST_REWARD_USD).toFixed(2)} {q.rewardToken.token.deployed ? "" : `${q.rewardToken.mock ? "mock " : ""}(quest reward, token belum launch)`}</span>
+            </>
           )}
         </div>
       </div>
