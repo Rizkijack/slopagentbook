@@ -602,26 +602,26 @@ export interface Caller {
 // === BRAWL: settlement chain — field optional BARU ===
 // The settlement rail lives ALONGSIDE the token chain rather than replacing it:
 // defaultConfig (config.ts) describes the token chain, and the two now agree on
-// Elysium Mainnet without either of them being written by this interface.
+// Zero Mainnet without either of them being written by this interface.
 //
-// Elysium is an EVM chain (Arbitrum Nitro), so the identity is `chainId` — 99901,
-// the number the probe checks live with eth_chainId. `genesisHash` stays optional
-// for the Solana era, when the chain had no chain id and was named by its genesis
-// hash instead; it is no longer set. There is no faucet on mainnet, so
-// `faucetUrl` is optional and omitted rather than left pointing at a testnet
-// that no longer applies.
+// Zero is an EVM chain (a ZK Stack rollup), so the identity is `chainId` — 543210,
+// the number the probe checks live with eth_chainId once an RPC exists.
+// `genesisHash` stays optional for the Solana era, when the chain had no chain
+// id and was named by its genesis hash instead; it is no longer set. There is
+// no faucet on mainnet, so `faucetUrl` is optional and omitted rather than left
+// pointing at a testnet that no longer applies.
 //
 // Every field beyond the first four is optional so a save written before this
 // change still loads.
 export interface SettlementChain {
-  name: string;      // "Elysium Mainnet"
-  rpcUrl: string;    // https://rpc-live.boxa.club
-  explorer: string;  // https://boxa.club/explorer
-  nativeSymbol: string; // "HYPE"
+  name: string;      // "Zero Mainnet"
+  rpcUrl: string;    // empty until an endpoint is published
+  explorer: string;  // empty until an explorer is published
+  nativeSymbol: string; // "ETH"
   /**
    * EVM chain id — the rail's identity. The probe reads it live with
    * `eth_chainId` and compares; a mismatch is the one fact that answers "is
-   * this really Elysium".
+   * this really Zero".
    */
   chainId?: number;
   /** The Solana-era identity, in base58. Kept so an older save still reads. */

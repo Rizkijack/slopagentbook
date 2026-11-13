@@ -68,7 +68,7 @@ const callerSchema = z.object({
 
 // The rail changed shape twice: on Robinhood Chain Testnet `chainId` and
 // `faucetUrl` were required; on Solana there was no chain id and the chain was
-// named by its genesis hash; on Elysium (EVM) the chain id is the identity
+// named by its genesis hash; on Zero (EVM) the chain id is the identity
 // again. Every field beyond the first four is optional, which is what lets a
 // save written in any earlier era still boot.
 const settlementChainSchema = z.object({
@@ -153,10 +153,10 @@ const caller: Caller = {
 };
 
 const settlementChain: SettlementChain = {
-  name: "Elysium Mainnet",
-  rpcUrl: "https://rpc-live.boxa.club",
-  explorer: "https://boxa.club/explorer",
-  nativeSymbol: "HYPE",
+  name: "Zero Mainnet",
+  rpcUrl: "",
+  explorer: "",
+  nativeSymbol: "ETH",
 };
 
 /** A save written while the rail was still Robinhood Chain Testnet 46630. */
@@ -310,13 +310,16 @@ describe("TownConfig", () => {
     expect(withRail.tokenAddress).toBe(defaultConfig.tokenAddress);
   });
 
-  it("still reports Elysium as the token chain (the §13 acceptance check)", () => {
-    // Moved from Solana with the rail. The check itself did not change — it
-    // still asserts that the token chain is on the expected chain, which is the
-    // thing worth failing loudly if a rebrand or a default moves it.
-    expect(defaultConfig.chainName).toBe("Elysium");
+  it("still reports Zero as the token chain (the §13 acceptance check)", () => {
+    // Moved from Solana with the rail, then from Elysium. The check itself did
+    // not change — it still asserts that the token chain is on the expected
+    // chain, which is the thing worth failing loudly if a rebrand or a default
+    // moves it.
+    expect(defaultConfig.chainName).toBe("Zero");
     expect(defaultConfig.network).toBe("mainnet");
-    expect(defaultConfig.nativeSymbol).toBe("HYPE");
+    expect(defaultConfig.nativeSymbol).toBe("ETH");
+    expect(defaultConfig.rpcUrl).toBe("");
+    expect(defaultConfig.explorer).toBe("");
   });
 
   it("publishes no token address until a mint is really deployed", () => {

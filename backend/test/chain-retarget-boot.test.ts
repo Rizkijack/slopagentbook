@@ -48,7 +48,7 @@ else process.env.DATA_PATH = prevDataPath;
  * Read what actually landed on disk.
  *
  * Waits for the debounced save to produce a config that DIFFERS from the one
- * seeded, then returns it. It deliberately does not poll for "Elysium" — that
+ * seeded, then returns it. It deliberately does not poll for "Zero" — that
  * would be circular, since it would assert the very condition it waited for.
  * What is being established is "a save happened"; what is then asserted, by the
  * caller, is what that save actually contained.
@@ -76,21 +76,23 @@ async function readPersistedConfig(): Promise<Record<string, unknown>> {
 }
 
 describe("booting a town whose save still carries the Base chain", () => {
-  it("brings it up on Elysium, on every field the move changed", () => {
+  it("brings it up on Zero, on every field the move changed", () => {
     // The load itself is what makes this test able to fail: without the boot
     // reconciliation, world.config is exactly the Base-era config seeded above.
-    expect(world.config.chainName).toBe("Elysium");
+    expect(world.config.chainName).toBe("Zero");
     expect(world.config.network).toBe("mainnet");
-    expect(world.config.rpcUrl).toBe("https://rpc-live.boxa.club");
-    expect(world.config.explorer).toBe("https://boxa.club/explorer");
-    expect(world.config.nativeSymbol).toBe("HYPE");
+    expect(world.config.rpcUrl).toBe("");
+    expect(world.config.explorer).toBe("");
+    expect(world.config.nativeSymbol).toBe("ETH");
   });
 
   it("persists the retarget, so the next boot starts from the new chain", async () => {
     const onDisk = await readPersistedConfig();
-    expect(onDisk.chainName).toBe("Elysium");
+    expect(onDisk.chainName).toBe("Zero");
     expect(onDisk.network).toBe("mainnet");
-    expect(onDisk.rpcUrl).toBe("https://rpc-live.boxa.club");
+    expect(onDisk.rpcUrl).toBe("");
+    expect(onDisk.explorer).toBe("");
+    expect(onDisk.nativeSymbol).toBe("ETH");
     // The walk below allows 15s; vitest's own 5s default would kill the test
     // first and report a timeout instead of the assertion it exists for.
   }, 20_000);

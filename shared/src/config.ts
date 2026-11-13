@@ -239,15 +239,17 @@ export const defaultConfig: TownConfig = {
    * no token behind it.
    */
   treasuryAddress: "0x8237a546ab643b444450d168a24842F27Fe75fC6",
-  chainName: "Elysium",
+  chainName: "Zero",
   network: "mainnet",
-  nativeSymbol: "HYPE",
-  rpcUrl: "https://rpc-live.boxa.club",
-  explorer: "https://boxa.club/explorer",
-  // DexScreener has no Elysium page yet (verified: the slug 404s), so the
-  // default is the site the reader can actually search. The pair URL is set by
-  // hand the day a token deploys — CoinView shows these buttons only when
-  // `tokenDeployed` is true.
+  nativeSymbol: "ETH",
+  // The operator has not published endpoints for Zero's token chain yet. Empty
+  // is the honest value: a placeholder URL would be a claim this town cannot
+  // support, and boot retargets an older Elysium save onto these exact values.
+  rpcUrl: "",
+  explorer: "",
+  // DexScreener has no Zero page yet, so the default is the site the reader can
+  // actually search. The pair URL is set by hand the day a token deploys —
+  // CoinView shows these buttons only when `tokenDeployed` is true.
   dexUrl: "https://dexscreener.com",
   xUrl: "https://x.com/slopagentbook",
   // No provider is wired, so the town runs its rule table and nothing else.

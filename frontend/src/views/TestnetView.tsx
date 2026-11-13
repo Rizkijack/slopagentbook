@@ -3,16 +3,16 @@ import { SETTLEMENT_CHAIN } from "@slopagentbook/shared";
 import type { Leash, Vault, Trade } from "@slopagentbook/shared";
 
 // The settlement rail app (`#/testnet`): chain status, a strongbox, and a trade
-// — on Elysium Mainnet. The route kept its name and so did this file; the rail it
+// — on Zero Mainnet. The route kept its name and so did this file; the rail it
 // talks to is mainnet, settled and final. Same shape as BrawlView: the
 // snapshot's optional arrays are read directly (absent on a fresh town) and
 // refreshed through SSE, and the chain facts come from GET /api/brawl/testnet
 // so this page never states a chain the server didn't report.
 //
-// Elysium is an EVM chain (Arbitrum Nitro, chain id 99901): the probe reads
-// eth_chainId and the page shows it plus the live client version. There is no
-// faucet on mainnet, so the "dole" card says so rather than linking to a
-// testnet that no longer applies.
+// Zero is an EVM chain (a ZK Stack rollup, chain id 543210): once an RPC is
+// configured the probe reads eth_chainId and the page shows it plus the live
+// client version. There is no faucet on mainnet, so the "dole" card says so
+// rather than linking to a testnet that no longer applies.
 //
 // Honesty rules inherited from backend/src/testnet.ts: no vault contract is
 // deployed and no signer exists, so nothing here pretends to be on-chain. The
@@ -24,7 +24,7 @@ type ChainStatus = {
   reachable?: boolean;
   /** Live client version read from the RPC (web3_clientVersion). */
   clientVersion?: string;
-  /** Live chain id read from the RPC, and whether it is 99901's. */
+  /** Live chain id read from the RPC, and whether it is the configured one. */
   chainId?: number;
   chainIdMatched?: boolean;
   chain: { name: string; rpcUrl: string; explorer: string; faucetUrl?: string; nativeSymbol: string; genesisHash?: string; chainId?: number };
@@ -158,13 +158,14 @@ export function TestnetView() {
     <div className="stagger">
       <div className="card">
         <div className="mono" style={{ fontSize: 11, letterSpacing: "0.12em", color: "var(--muted)" }}>
-          LEASH WORKSPACE · ELYSIUM MAINNET
+          LEASH WORKSPACE · ZERO MAINNET
         </div>
         <div style={{ fontFamily: "var(--serif)", fontSize: 34, marginTop: 4 }}>The Farrier&rsquo;s Row</div>
         <div className="muted" style={{ fontSize: 13, marginTop: 6 }}>
           Chain facts below are read from the server&rsquo;s own status endpoint, not typed in by hand. This is
-          mainnet, so anything sent here is final. The rail is honest about its state: the chain is live, the
-          vault contract is not deployed yet, and settlement runs locally until a contract and a signer exist.
+          mainnet, so anything sent here is final. The rail is honest about its state: the chain is named, no
+          RPC endpoint is configured yet, the vault contract is not deployed, and settlement runs locally until
+          a contract and a signer exist.
         </div>
       </div>
 
@@ -185,7 +186,7 @@ export function TestnetView() {
               </span>
             ) : testnet.reachable === false ? (
               <span className="mono" style={{ fontSize: 11, color: "var(--halt)" }}>
-                ○ RPC unreachable
+                {testnet.chain.rpcUrl ? "○ RPC unreachable" : "○ RPC not configured"}
               </span>
             ) : null}
           </div>
@@ -194,29 +195,36 @@ export function TestnetView() {
           </div>
           {/* An EVM chain is named by its chain id. That is the thing to verify,
               and a mismatch is shown rather than swallowed — an endpoint that
-              answers but is not 99901 is worse than one that is down. */}
+              answers but is not the configured chain is worse than one that is
+              down. */}
           {typeof testnet.chainId === "number" && (
             <div className="mono" style={{ fontSize: 11, marginTop: 6, wordBreak: "break-all", color: testnet.chainIdMatched === false ? "var(--halt)" : "var(--faint)" }}>
               chain id {testnet.chainId}{" "}
               {testnet.chainIdMatched === false
-                ? "— not 99901, do not trust this endpoint"
-                : "— matches 99901"}
+                ? `— not ${testnet.chain.chainId ?? "the configured id"}, do not trust this endpoint`
+                : `— matches ${testnet.chain.chainId ?? "the configured id"}`}
             </div>
           )}
           <div className="mono" style={{ fontSize: 11, marginTop: 6, color: "var(--faint)", lineHeight: 1.5 }}>
-            RPC {testnet.chain.rpcUrl} · vault contract: not deployed yet · mainnet: active
+            RPC {testnet.chain.rpcUrl || "not configured yet"} · vault contract: not deployed yet · mainnet: active
           </div>
-          <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <a className="btn btn-ghost" href={testnet.chain.explorer} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>Explorer ↗</a>
-            <a className="btn btn-ghost" href={testnet.chain.rpcUrl} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>RPC ↗</a>
-          </div>
+          {(testnet.chain.explorer || testnet.chain.rpcUrl) && (
+            <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
+              {testnet.chain.explorer && (
+                <a className="btn btn-ghost" href={testnet.chain.explorer} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>Explorer ↗</a>
+              )}
+              {testnet.chain.rpcUrl && (
+                <a className="btn btn-ghost" href={testnet.chain.rpcUrl} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>RPC ↗</a>
+              )}
+            </div>
+          )}
         </div>
       )}
 
       {/* ---- the dole ---- */}
       {/* This used to link a testnet faucet and explain what tQUOTE and tBASE
           were worth. None of that applies on mainnet: a faucet is a testnet
-          affordance and there is no version of "mainnet HYPE is worth nothing"
+          affordance and there is no version of "mainnet ETH is worth nothing"
           that is true. The card stays because its absence would be a quieter
           claim than its presence — it now says what a reader needs to know,
           which is that there is no dole and everything sent is final. */}
@@ -225,9 +233,9 @@ export function TestnetView() {
           THE DOLE · NONE ON MAINNET
         </div>
         <div className="muted" style={{ fontSize: 13, marginTop: 6 }}>
-          A faucet hands out worthless test funds so people can practise. This rail is Elysium Mainnet, where there is
+          A faucet hands out worthless test funds so people can practise. This rail is Zero Mainnet, where there is
           no faucet because the funds are real and transfers are final. There is nothing to claim here, and nothing in
-          this town should ever ask you to send {testnet?.chain.nativeSymbol ?? "HYPE"} anywhere — no contract is
+          this town should ever ask you to send {testnet?.chain.nativeSymbol ?? SETTLEMENT_CHAIN.nativeSymbol} anywhere — no contract is
           deployed, so there is no on-chain action to take.
         </div>
       </div>

@@ -28,7 +28,7 @@ vi.mock("wagmi", () => ({
   WagmiProvider: ({ children }: { children: unknown }) => children,
   useAccount: () => ({
     address: h.address,
-    chain: h.address ? { name: "Elysium Mainnet" } : undefined,
+    chain: h.address ? { name: "Zero Mainnet" } : undefined,
     connector: h.connectorName ? { name: h.connectorName } : undefined,
     isConnected: Boolean(h.address),
   }),
@@ -52,7 +52,7 @@ vi.mock("@reown/appkit/react", () => ({
     allAccounts: [],
   }),
   useAppKitNetwork: () => ({
-    caipNetwork: h.address ? { name: "Elysium Mainnet" } : undefined,
+    caipNetwork: h.address ? { name: "Zero Mainnet" } : undefined,
   }),
   useWalletInfo: () => ({
     walletInfo: h.connectorName ? { name: h.connectorName } : undefined,
@@ -142,7 +142,7 @@ describe("WalletMenu", () => {
     expect(popover).toBeTruthy();
     expect(popover!.textContent).toContain("MetaMask");
     expect(popover!.textContent).toContain(ADDRESS);
-    expect(popover!.textContent).toContain("Elysium Mainnet");
+    expect(popover!.textContent).toContain("Zero Mainnet");
     expect(popover!.querySelector(".wallet-disconnect")?.textContent).toBe("Disconnect");
   });
 

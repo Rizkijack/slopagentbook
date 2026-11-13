@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { TownSnapshot } from "@slopagentbook/shared";
+import { SETTLEMENT_CHAIN, type TownSnapshot } from "@slopagentbook/shared";
 
 export function CoinView({ snapshot }: { snapshot: TownSnapshot }) {
   const [treasury, setTreasury] = useState<{ sol: number; solUsd: number; usd: number; updated: number; address: string; chainName: string; illustrative?: boolean } | null>(null);
@@ -7,7 +7,7 @@ export function CoinView({ snapshot }: { snapshot: TownSnapshot }) {
   // this replaces (`chainName === "Base" ? "ETH" : "SOL"`) was a second copy of
   // a fact the config already carries, and it went wrong the moment the chain
   // changed under it.
-  const symbol = snapshot.config.nativeSymbol ?? "HYPE";
+  const symbol = snapshot.config.nativeSymbol ?? SETTLEMENT_CHAIN.nativeSymbol;
 
   useEffect(() => {
     let alive = true;
@@ -41,7 +41,9 @@ export function CoinView({ snapshot }: { snapshot: TownSnapshot }) {
         <div style={{ marginTop: 14, display: "flex", gap: 12, flexWrap: "wrap" }}>
           {snapshot.config.tokenDeployed && (
             <>
-              <a className="btn" style={{ background: "var(--mark)", color: "var(--ink)", borderColor: "var(--mark)", textDecoration: "none" }} href={snapshot.config.explorer} target="_blank" rel="noreferrer">Explorer ↗</a>
+              {snapshot.config.explorer && (
+                <a className="btn" style={{ background: "var(--mark)", color: "var(--ink)", borderColor: "var(--mark)", textDecoration: "none" }} href={snapshot.config.explorer} target="_blank" rel="noreferrer">Explorer ↗</a>
+              )}
               <a className="btn btn-ghost" style={{ borderColor: "var(--mark)", color: "var(--mark)", textDecoration: "none" }} href={snapshot.config.dexUrl} target="_blank" rel="noreferrer">Dexscreener ↗</a>
             </>
           )}

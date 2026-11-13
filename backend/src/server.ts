@@ -226,24 +226,24 @@ if (applyHerdCapDefault(world.config as unknown as Record<string, unknown>)) {
 }
 
 /**
- * Chain fields whose Base-era value identifies the chain BY ITSELF, so they can
- * be matched on their own. `tokenAddress` is NOT here, for the same reason it
- * is not in BRAND_KEYS: it points at real funds, so a default must never
- * rewrite it.
+ * Chain fields whose era value identifies the chain BY ITSELF, so they can be
+ * matched on their own. `tokenAddress` is NOT here, for the same reason it is
+ * not in BRAND_KEYS: it points at real funds, so a default must never rewrite
+ * it.
  *
- * `network` is deliberately NOT here either. "mainnet" is not an Elysium value —
- * it is the ordinary word for every production EVM chain, and Ethereum, Polygon and
- * Arbitrum all carry it. Matching it on its own would let this drag a town
- * someone pointed at Ethereum onto Elysium while its `chainName` still
- * said Ethereum, producing exactly the mixed config this function exists to
- * prevent. It is retargeted only once another field has identified the town.
+ * `network` is deliberately NOT here either. "mainnet" is not a Zero value —
+ * it is the ordinary word for every production EVM chain, and Ethereum, Polygon
+ * and Arbitrum all carry it. Matching it on its own would let this drag a town
+ * pointed at Ethereum onto Zero while its `chainName` still said Ethereum,
+ * producing exactly the mixed config this function exists to prevent. It is
+ * retargeted only once another field has identified the town.
  */
 const CHAIN_KEYS = ["chainName", "rpcUrl", "explorer", "dexUrl"] as const;
 
 /**
- * Every Base-era or Solana-era value a saved town may still be carrying.
+ * Every era value a saved town may still be carrying: Base, Solana, or Elysium.
  *
- * The token moved to Elysium Mainnet, and changing `defaultConfig` alone is not
+ * The token moved to Zero Mainnet, and changing `defaultConfig` alone is not
  * enough for a town that has a save: the loaded row's own config wins, so the
  * running town keeps rendering whichever chain it was born on indefinitely.
  * Boot is the only point every instance passes through, so the chain is
@@ -256,21 +256,24 @@ const CHAIN_KEYS = ["chainName", "rpcUrl", "explorer", "dexUrl"] as const;
  * was appended would hold the bare `https://basescan.org`. Neither form has ever
  * been confirmed in this repository's history, so both are carried forward —
  * carrying one the town does not have costs nothing, because a match with no
- * counterpart just means that field is already correct. Anything else — a
- * hand-set proxy, a basescan URL for some other address — is deliberately not
- * matched, and now refuses the whole town rather than half-migrating it.
+ * counterpart just means that field is already correct. The Elysium endpoint
+ * values are the ones the previous default wrote. Anything else — a hand-set
+ * proxy, a basescan URL for some other address — is deliberately not matched,
+ * and now refuses the whole town rather than half-migrating it.
  */
 const PREVIOUS_CHAIN: Record<string, string[]> = {
-  chainName: ["Base", "Solana"],
+  chainName: ["Base", "Solana", "Elysium"],
   network: ["mainnet", "mainnet-beta"],
   rpcUrl: [
     "https://mainnet.base.org",
     "https://api.mainnet-beta.solana.com",
+    "https://rpc-live.boxa.club",
   ],
   explorer: [
     "https://basescan.org/token/TLJ8QbLnNUxZJJ1dcqF9auUKHrtKd8aNUkscxhSDADj",
     "https://basescan.org",
     "https://explorer.solana.com",
+    "https://boxa.club/explorer",
   ],
   dexUrl: [
     "https://dexscreener.com/base/",
@@ -279,7 +282,7 @@ const PREVIOUS_CHAIN: Record<string, string[]> = {
 };
 
 /**
- * Apply the chain retarget to a town still carrying the Base-era chain.
+ * Apply the chain retarget to a town still carrying a previous era's chain.
  *
  * Same discipline as `applyRebrand`, for the same reason. A blanket copy of
  * `defaultConfig` would fix the chain but would also rewrite `tokenAddress` on
@@ -306,7 +309,7 @@ export function applyChainRetarget(config: Record<string, unknown>): string[] {
   //
   // Concretely: an operator on their own Base node holds chainName "Base" but a
   // hand-set rpcUrl and explorer. Retargeting only the keys that match would give
-  // them Elysium with a Base RPC behind it and no signal that anything is wrong.
+  // them Zero with a Base RPC behind it and no signal that anything is wrong.
   const foreign = CHAIN_KEYS.some((key) => {
     const current = config[key];
     if (typeof current !== "string") return false;
@@ -314,11 +317,11 @@ export function applyChainRetarget(config: Record<string, unknown>): string[] {
   });
   if (foreign) return [];
 
-  // Is this town one of ours? A field carrying a Base-era value, a Solana-era
-  // value, or the current Elysium value is enough — several may already have
-  // been migrated by hand, and any one of them settles the question. Computed
-  // BEFORE anything is rewritten, so it answers "what was this town?", not
-  // "what is it now?".
+  // Is this town one of ours? A field carrying a Base-era, Solana-era, or
+  // Elysium-era value — or the current Zero value — is enough. Several may
+  // already have been migrated by hand, and any one of them settles the
+  // question. Computed BEFORE anything is rewritten, so it answers "what was
+  // this town?", not "what is it now?".
   const isOurs = CHAIN_KEYS.some((key) => {
     const current = config[key];
     if (typeof current !== "string") return false;
@@ -346,15 +349,16 @@ export function applyChainRetarget(config: Record<string, unknown>): string[] {
     config.network = defaultConfig.network;
     changed.push("network");
   }
-  // `nativeSymbol` rides the same carry rule: a Solana-era town holds the exact
-  // "SOL" the previous default wrote, and leaving it would keep a HYPE town
-  // pricing its vault in a currency the rail no longer settles. An empty field
-  // (pre-nativeSymbol save) is filled from the default as before. A hand-set
-  // symbol — anything but the era values — is left alone.
+  // `nativeSymbol` rides the same carry rule: a Solana-era town holds "SOL" and
+  // an Elysium-era town holds "HYPE", both exact values a previous default
+  // wrote. Leaving either would keep a Zero town pricing its vault in a
+  // currency the rail no longer settles. An empty field (pre-nativeSymbol save)
+  // is filled from the default as before. A hand-set symbol — anything but the
+  // era values — is left alone.
   const symbol = config.nativeSymbol;
   if (
     typeof defaultConfig.nativeSymbol === "string" &&
-    (typeof symbol !== "string" || symbol === "" || symbol === "SOL")
+    (typeof symbol !== "string" || symbol === "" || symbol === "SOL" || symbol === "HYPE")
   ) {
     if (defaultConfig.nativeSymbol !== symbol) {
       config.nativeSymbol = defaultConfig.nativeSymbol;

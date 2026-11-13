@@ -45,13 +45,14 @@ describe("BRAWL rail", () => {
   it("GET /api/brawl/testnet reports the rail and says plainly no contract is deployed", async () => {
     const res = await request(app).get("/api/brawl/testnet");
     expect(res.status).toBe(200);
-    // Elysium is EVM, so the identity is a chain id again — and the Solana-era
-    // genesis field is absent rather than carried over stale.
-    expect(res.body.chain.name).toBe("Elysium Mainnet");
-    expect(res.body.chain.nativeSymbol).toBe("HYPE");
-    expect(res.body.chain.chainId).toBe(99901);
-    expect(res.body.chain.rpcUrl).toBe("https://rpc-live.boxa.club");
-    expect(res.body.chain.explorer).toBe("https://boxa.club/explorer");
+    // Zero is EVM, so the identity is a chain id again — and the Solana-era
+    // genesis field is absent rather than carried over stale. Its endpoints are
+    // empty until the operator publishes them.
+    expect(res.body.chain.name).toBe("Zero Mainnet");
+    expect(res.body.chain.nativeSymbol).toBe("ETH");
+    expect(res.body.chain.chainId).toBe(543210);
+    expect(res.body.chain.rpcUrl).toBe("");
+    expect(res.body.chain.explorer).toBe("");
     expect(res.body.chain.genesisHash).toBeUndefined();
     expect(res.body.chain.faucetUrl).toBeUndefined();
     expect(res.body.note).toMatch(/no vault contract is deployed/i);

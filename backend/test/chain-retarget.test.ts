@@ -36,14 +36,35 @@ function baseEraSave(): Record<string, unknown> {
 /**
  * A save's config wins over `defaultConfig`, so the chain move is invisible on
  * every town that already has one unless it is reconciled at boot. These pin
- * both halves: a Base-era or Solana-era save must be carried onto Elysium, and
+ * both halves: a Base-era, Solana-era or Elysium-era save must be carried onto
+ * Zero, and
  * a town that is already there — or that someone pointed somewhere by hand —
  * must not be.
  */
 
 /**
- * The exact config the Solana-era save carried, lifted field for field from the
- * chain this migration just replaced.
+ * The exact config the Elysium-era save carried, lifted field for field from
+ * the chain this migration just replaced.
+ */
+function elysiumEraSave(): Record<string, unknown> {
+  return {
+    name: "SlopAgentbook",
+    ticker: "SLB",
+    tokenAddress: "",
+    chainName: "Elysium",
+    network: "mainnet",
+    nativeSymbol: "HYPE",
+    rpcUrl: "https://rpc-live.boxa.club",
+    explorer: "https://boxa.club/explorer",
+    dexUrl: "https://dexscreener.com",
+    xUrl: "https://x.com/slopagentbook",
+    maxHerd: 200,
+  };
+}
+
+/**
+ * The exact config the Solana-era save carried, lifted field for field from
+ * the chain this migration replaced before Elysium.
  */
 function solanaEraSave(): Record<string, unknown> {
   return {
@@ -62,48 +83,61 @@ function solanaEraSave(): Record<string, unknown> {
 }
 
 describe("applyChainRetarget", () => {
-  it("carries a Base-era town onto Elysium, changing exactly five fields", () => {
+  it("carries a Base-era town onto Zero, changing exactly five fields", () => {
     const config = baseEraSave();
     const changed = applyChainRetarget(config);
     // `network` is not among them: the Base-era town already carried "mainnet",
-    // which is exactly what Elysium's default is — nothing to change there.
+    // which is exactly what Zero's default is — nothing to change there.
     expect(changed.sort()).toEqual(["chainName", "dexUrl", "explorer", "nativeSymbol", "rpcUrl"]);
     expect(config.network).toBe("mainnet");
-    expect(config.chainName).toBe("Elysium");
-    expect(config.rpcUrl).toBe("https://rpc-live.boxa.club");
-    expect(config.explorer).toBe("https://boxa.club/explorer");
+    expect(config.chainName).toBe("Zero");
+    expect(config.rpcUrl).toBe("");
+    expect(config.explorer).toBe("");
     expect(config.dexUrl).toBe("https://dexscreener.com");
-    expect(config.nativeSymbol).toBe("HYPE");
+    expect(config.nativeSymbol).toBe("ETH");
   });
 
-  it("carries the Solana-era town onto Elysium — the move this migration exists for", () => {
+  it("carries the Elysium-era town onto Zero, clearing the endpoints it had", () => {
+    const config = elysiumEraSave();
+    const changed = applyChainRetarget(config);
+    expect(changed.sort()).toEqual(["chainName", "explorer", "nativeSymbol", "rpcUrl"]);
+    expect(config.chainName).toBe("Zero");
+    expect(config.network).toBe("mainnet");
+    expect(config.rpcUrl).toBe("");
+    expect(config.explorer).toBe("");
+    expect(config.nativeSymbol).toBe("ETH");
+    // already the current dex home, so it is not a changed field
+    expect(config.dexUrl).toBe("https://dexscreener.com");
+  });
+
+  it("carries the Solana-era town onto Zero — the move this migration exists for", () => {
     const config = solanaEraSave();
     const changed = applyChainRetarget(config);
     expect(changed.sort()).toEqual(["chainName", "dexUrl", "explorer", "nativeSymbol", "network", "rpcUrl"]);
-    expect(config.chainName).toBe("Elysium");
+    expect(config.chainName).toBe("Zero");
     expect(config.network).toBe("mainnet");
-    expect(config.rpcUrl).toBe("https://rpc-live.boxa.club");
-    expect(config.explorer).toBe("https://boxa.club/explorer");
+    expect(config.rpcUrl).toBe("");
+    expect(config.explorer).toBe("");
     expect(config.dexUrl).toBe("https://dexscreener.com");
-    expect(config.nativeSymbol).toBe("HYPE");
+    expect(config.nativeSymbol).toBe("ETH");
   });
 
   it("returns exactly the keys it changed", () => {
-    // A half-migrated town: every chain key already on the Elysium value except
+    // A half-migrated town: every chain key already on the Zero value except
     // the explorer, which still carries the Solana-era form. The returned list
     // is what the caller logs and persists, so a key that did not change
     // appearing in it would be a false "migrated" claim, and a changed key
     // missing from it would be a silent edit that never reaches the save.
     const config = {
       ...solanaEraSave(),
-      chainName: "Elysium",
+      chainName: "Zero",
       network: "mainnet",
-      rpcUrl: "https://rpc-live.boxa.club",
+      rpcUrl: "",
       dexUrl: "https://dexscreener.com",
     };
     expect(applyChainRetarget(config)).toEqual(["explorer", "nativeSymbol"]);
-    expect(config.explorer).toBe("https://boxa.club/explorer");
-    expect(config.nativeSymbol).toBe("HYPE");
+    expect(config.explorer).toBe("");
+    expect(config.nativeSymbol).toBe("ETH");
   });
 
   it("carries a save written before the mint was appended to the explorer", () => {
@@ -113,10 +147,10 @@ describe("applyChainRetarget", () => {
     config.explorer = "https://basescan.org";
     const changed = applyChainRetarget(config);
     expect(changed).toContain("explorer");
-    expect(config.explorer).toBe("https://boxa.club/explorer");
+    expect(config.explorer).toBe("");
   });
 
-  it("leaves a town already on Elysium alone", () => {
+  it("leaves a town already on Zero alone", () => {
     const config = {
       ...defaultConfig,
       tokenAddress: "So11111111111111111111111111111111111111112",
@@ -171,7 +205,7 @@ describe("applyChainRetarget", () => {
   it("does not clear a town that HAS deployed its mint", () => {
     // Distinct from the two above, and the one that matters most. An operator who
     // really has deployed a token carries a real address and `tokenDeployed:
-    // true`. The retarget moves their chain to Elysium and must leave every bit of
+    // true`. The retarget moves their chain to Zero and must leave every bit of
     // that alone — in particular it must not "helpfully" reset the flag to
     // false, which would hide a genuinely deployed mint behind "No mint deployed
     // yet" and make a live token look like it never existed.
@@ -189,7 +223,7 @@ describe("applyChainRetarget", () => {
   it("refuses the whole town when one field names a chain it cannot account for", () => {
     // The mixed-config guard. An operator on their own Base node holds a
     // Base-era chainName but a hand-set rpcUrl and explorer. Retargeting only
-    // the keys that match would leave them claiming Elysium while pointing at a
+    // the keys that match would leave them claiming Zero while pointing at a
     // Base RPC — the corruption this function exists to prevent, and one nothing
     // downstream can detect. So: refuse, leaving a consistent stale town.
     const config = {
@@ -211,7 +245,7 @@ describe("applyChainRetarget", () => {
     const config = { ...defaultConfig } as Record<string, unknown>;
     delete config.nativeSymbol;
     expect(applyChainRetarget(config)).toEqual(["nativeSymbol"]);
-    expect(config.nativeSymbol).toBe("HYPE");
+    expect(config.nativeSymbol).toBe("ETH");
   });
 
   it("retargets the Solana-era nativeSymbol but leaves a hand-set one alone", () => {
@@ -221,7 +255,7 @@ describe("applyChainRetarget", () => {
     // symbol even when it happens to read "SOL".
     const ours = solanaEraSave();
     expect(applyChainRetarget(ours)).toContain("nativeSymbol");
-    expect(ours.nativeSymbol).toBe("HYPE");
+    expect(ours.nativeSymbol).toBe("ETH");
 
     const foreign = { ...defaultConfig, chainName: "Arbitrum" };
     delete (foreign as Record<string, unknown>).rpcUrl;
@@ -244,7 +278,7 @@ describe("applyChainRetarget", () => {
   });
 
   it("will not drag a town on another chain by the word 'mainnet' alone", () => {
-    // "mainnet" is not an Elysium value, it is the ordinary word for every
+    // "mainnet" is not a Zero value, it is the ordinary word for every
     // production EVM chain. Matched on its own it would rewrite `network` while
     // `chainName` still said Ethereum — the mixed config this whole function
     // exists to prevent. Only `network` and `nativeSymbol` are exposed here,
@@ -266,14 +300,14 @@ describe("applyChainRetarget", () => {
     expect("nativeSymbol" in ethereum).toBe(false);
   });
 
-  it("heals a town half-migrated by hand — chain already Elysium, rpc still Solana's", () => {
-    // Somebody pointed the town at Elysium themselves and missed one field. Any
-    // field already on the Elysium value — or still on a value an earlier era of
+  it("heals a town half-migrated by hand — chain already Zero, rpc still Solana's", () => {
+    // Somebody pointed the town at Zero themselves and missed one field. Any
+    // field already on the Zero value — or still on a value an earlier era of
     // this migration produced — identifies the town as ours, so the stale ones
     // heal rather than stranding the town in a mixed config.
     const config = { ...defaultConfig, rpcUrl: "https://api.mainnet-beta.solana.com" };
     expect(applyChainRetarget(config)).toEqual(["rpcUrl"]);
-    expect(config.rpcUrl).toBe("https://rpc-live.boxa.club");
+    expect(config.rpcUrl).toBe("");
   });
 
   it("is idempotent — a second boot has nothing left to do", () => {

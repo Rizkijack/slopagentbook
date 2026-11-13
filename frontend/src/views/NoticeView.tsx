@@ -7,16 +7,16 @@ import { useEffect, useState } from "react";
 // address is exactly how these scams work.
 
 type ChainStatus = {
-  // Elysium is EVM, so the identity is a chain id; there is no faucet on
-  // mainnet. Fields beyond the first four are optional so an older build of
-  // the backend still validates here rather than rendering "undefined".
+  // Zero is EVM, so the identity is a chain id; there is no faucet on mainnet.
+  // Fields beyond the first four are optional so an older build of the backend
+  // still validates here rather than rendering "undefined".
   chain: { name: string; rpcUrl?: string; explorer: string; faucetUrl?: string; nativeSymbol?: string; chainId?: number };
   note?: string;
   contractAddress?: string;
   configured?: boolean;
   /** Live client version read from the RPC, when reachable. */
   clientVersion?: string;
-  /** Live chain id read from the RPC, and whether it is 99901's. */
+  /** Live chain id read from the RPC, and whether it is the configured one. */
   chainId?: number;
   chainIdMatched?: boolean;
   reachable?: boolean;
@@ -25,7 +25,7 @@ type ChainStatus = {
 const WARNINGS: { title: string; body: string }[] = [
   {
     title: "There is no contract to sign with",
-    body: "This town settles on Elysium Mainnet, and no vault contract exists on it yet — so nothing here should ever ask you to sign, approve or send anything. A page that does is not this town, whatever it looks like. The board publishes no address until a contract exists; any address claiming to be this town's before this line changes is fake.",
+    body: "This town settles on Zero Mainnet, and no vault contract exists on it yet — so nothing here should ever ask you to sign, approve or send anything. A page that does is not this town, whatever it looks like. The board publishes no address until a contract exists; any address claiming to be this town's before this line changes is fake.",
   },
   {
     title: "Only trust an address you can find here",
@@ -37,7 +37,7 @@ const WARNINGS: { title: string; body: string }[] = [
   },
   {
     title: "Mainnet funds are real, and sending them is final",
-    body: "This is mainnet, not a testnet: there is no faucet and no free funds, and nothing can be reversed once it is sent. The testnet warning that used to sit here does not apply — which makes it more important, not less. Nobody connected to this town has any reason to want your HYPE.",
+    body: "This is mainnet, not a testnet: there is no faucet and no free funds, and nothing can be reversed once it is sent. The testnet warning that used to sit here does not apply — which makes it more important, not less. Nobody connected to this town has any reason to want your ETH.",
   },
 ];
 
@@ -68,18 +68,22 @@ export function NoticeView() {
         <div className="stagger" style={{ marginTop: 12, gap: 8 }}>
           <Fact label="NETWORK" value={status?.chain.name ?? "—"} />
           {/* The probe reads web3_clientVersion off the RPC — the live client
-              string, which on a Nitro chain names the release actually running. */}
-          <Fact label="CLIENT VERSION" value={status?.clientVersion ?? (status ? (status.reachable ? "reachable" : "unreachable") : "—")} />
+              string, which names the release actually running. No endpoint is
+              configured yet, so "not probed" is the honest state. */}
+          <Fact
+            label="CLIENT VERSION"
+            value={status?.clientVersion ?? (status ? (status.reachable ? "reachable" : status.chain.rpcUrl ? "unreachable" : "not probed") : "—")}
+          />
           {/* The one fact worth pinning: an EVM chain is named by its chain id,
-              and 99901 is this rail's published constant. A mismatch is shown,
+              and 543210 is this rail's published constant. A mismatch is shown,
               not buried — an endpoint that answers but turns out not to be
-              Elysium is worse than one that is down, because it looks alive. */}
+              Zero is worse than one that is down, because it looks alive. */}
           <Fact
             label="CHAIN ID"
             value={chainIdFact(status)}
           />
-          <Fact label="RPC" value={status?.chain.rpcUrl ?? "—"} />
-          <Fact label="EXPLORER" value={status?.chain.explorer ?? "—"} />
+          <Fact label="RPC" value={status?.chain.rpcUrl || "not configured"} />
+          <Fact label="EXPLORER" value={status?.chain.explorer || "not configured"} />
           <Fact label="FAUCET" value={status?.chain.faucetUrl ?? "none — mainnet"} />
         </div>
 
@@ -130,10 +134,11 @@ function Fact({ label, value }: { label: string; value: string }) {
   );
 }
 
-/** The chain-id line: the live id, plus whether it is 99901's. */
+/** The chain-id line: the live id, plus whether it is the configured one's. */
 function chainIdFact(status: ChainStatus | null): string {
   if (!status) return "—";
   if (typeof status.chainId !== "number") return "not read";
-  const verdict = status.chainIdMatched === false ? " — NOT Elysium" : " — Elysium";
+  const expected = status.chain.chainId ?? "the configured id";
+  const verdict = status.chainIdMatched === false ? ` — NOT ${expected}` : ` — ${expected}`;
   return `${status.chainId}${verdict}`;
 }

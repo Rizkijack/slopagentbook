@@ -277,7 +277,7 @@ describe("x402 facts and network identity", () => {
 
   it("X402_NETWORK carries the payment rail's own Solana identity, and its CAIP-2 form is the SDK's own", () => {
     // The x402 rail keys on Solana — the SVM scheme it speaks — independently of
-    // the town's settlement chain (Elysium, an EVM chain with no USDC contract
+    // the town's settlement chain (Zero, an EVM chain with no USDC contract
     // this rail can name). See the comment above X402_SOLANA_GENESIS in x402.ts.
     expect(X402_NETWORK).toBe("solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d");
     // The 32-char CAIP-2 used for the asset lookup must be @x402/svm's constant,

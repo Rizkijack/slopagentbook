@@ -31,9 +31,9 @@ import { TOOL_NAMES } from "./tools.js";
 /**
  * The x402 payment rail keys on Solana mainnet — the SVM scheme this SDK
  * carries, and the USDC mint its own default-asset table resolves. The town's
- * SETTLEMENT_CHAIN has since moved to Elysium Mainnet (an EVM chain, chain id
- * 99901), and this rail cannot follow it yet: no EVM scheme is wired here, no
- * USDC contract on Elysium exists in any default-asset table, and typing one in
+ * SETTLEMENT_CHAIN has since moved to Zero Mainnet (an EVM chain, chain id
+ * 543210), and this rail cannot follow it yet: no EVM scheme is wired here, no
+ * USDC contract on Zero exists in any default-asset table, and typing one in
  * would fabricate an address. So the payment rail carries its own chain
  * identity — the two rails are separate layers, and each names its own chain.
  * The day an EVM facilitator lands, this constant retires with the rest of the

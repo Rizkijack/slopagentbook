@@ -18,7 +18,13 @@ export const townChain: Chain = defineChain({
     decimals: 18,
   },
   rpcUrls: { default: { http: [SETTLEMENT_CHAIN.rpcUrl] } },
-  blockExplorers: {
-    default: { name: `${SETTLEMENT_CHAIN.name} explorer`, url: SETTLEMENT_CHAIN.explorer },
-  },
+  // No explorer is published for Zero yet. Omitting the block costs nothing and
+  // keeps a wallet from rendering a link to an empty URL.
+  ...(SETTLEMENT_CHAIN.explorer
+    ? {
+        blockExplorers: {
+          default: { name: `${SETTLEMENT_CHAIN.name} explorer`, url: SETTLEMENT_CHAIN.explorer },
+        },
+      }
+    : {}),
 });

@@ -152,7 +152,7 @@ export const MCP_X402: McpX402Status = {
   envNeeded: ["X402_FACILITATOR_URL", "X402_PAY_TO"],
   network: {
     // The x402 payment rail keys on Solana — the SVM scheme package mcp speaks —
-    // while the town's settlement chain (SETTLEMENT_CHAIN) is Elysium. Two rails,
+    // while the town's settlement chain (SETTLEMENT_CHAIN) is Zero. Two rails,
     // two chains: the payment rail's id is pinned in mcp/src/x402.ts and asserted
     // by mcp/test/x402.test.ts; the literal here mirrors it for the MCP docs.
     name: "Solana Mainnet",
